@@ -8,6 +8,7 @@ RUN apt-get update \
     && apt-get install -y \
     git \
     libdbi-perl \
+    mysql-client-5.7 \
     mysql-server-5.7 \
     wget \
     && git clone https://github.com/bcgsc/mirna.git \
@@ -20,5 +21,5 @@ RUN apt-get update \
     && wget http://hgdownload.cse.ucsc.edu/goldenpath/hg38/database/refGene.sql \
     && wget http://hgdownload.cse.ucsc.edu/goldenpath/hg38/database/refGene.txt.gz \
     && wget http://hgdownload.cse.ucsc.edu/goldenpath/hg38/database/rmsk.sql \
-    && wget http://hgdownload.cse.ucsc.edu/goldenpath/hg38/database/refGene.txt.gz \
+    && wget http://hgdownload.cse.ucsc.edu/goldenpath/hg38/database/rmsk.txt.gz \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
