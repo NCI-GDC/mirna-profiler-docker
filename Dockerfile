@@ -23,7 +23,7 @@ RUN apt-get update \
     && wget http://hgdownload.cse.ucsc.edu/goldenpath/hg38/database/refGene.txt.gz \
     && wget http://hgdownload.cse.ucsc.edu/goldenpath/hg38/database/rmsk.sql \
     && wget http://hgdownload.cse.ucsc.edu/goldenpath/hg38/database/rmsk.txt.gz \
-    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
     && echo "db.user=browser" >> .hg.conf && echo "db.password=genome" >> .hg.conf && echo "central.user=browser" >> .hg.conf && echo "central.password=genome" >> .hg.conf && echo "central.db=hgcentral" >> .hg.conf && chmod 400 .hg.conf \
     && mkdir /var/run/mysqld \
     && chown mysql:mysql /var/run/mysqld \
