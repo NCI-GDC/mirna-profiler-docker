@@ -10,6 +10,7 @@ RUN apt-get update \
     libdbi-perl \
     mysql-client-5.7 \
     mysql-server-5.7 \
+    systemd \
     wget \
     && git clone https://github.com/bcgsc/mirna.git \
     && wget --directory-prefix=/usr/local/bin/ http://hgdownload.cse.ucsc.edu/admin/exe/linux.x86_64/hgsql \
