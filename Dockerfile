@@ -71,6 +71,7 @@ RUN apt-get update \
     && mysqlimport --user root hg38 knownGene.tsv \
     && mysqlimport --user root hg38 refGene.tsv \
     && mysqlimport --user root hg38 rmsk.tsv \
+    && wget ftp://mirbase.org/pub/mirbase/CURRENT/README \
     && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/tables.sql \
     && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/confidence_score.txt.gz \
     && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/confidence.txt.gz \
