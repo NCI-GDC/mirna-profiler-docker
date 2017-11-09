@@ -7,6 +7,7 @@ ENV DEBIAN_FRONTEND noninteractive
 RUN apt-get update \
     && apt-get install -y \
     git \
+    libdbd-mysql-perl \
     libdbi-perl \
     mysql-client-5.7 \
     mysql-server-5.7 \
