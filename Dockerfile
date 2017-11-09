@@ -68,6 +68,48 @@ RUN apt-get update \
     && mysqlimport --user root hg38 knownGene.tsv \
     && mysqlimport --user root hg38 refGene.tsv \
     && mysqlimport --user root hg38 rmsk.tsv \
+    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/tables.sql \
+    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/confidence_score.txt.gz \
+    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/confidence.txt.gz \
+    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/dead_mirna.txt.gz \
+    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/experiment_pre_read.txt.gz \
+    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/experiment.txt.gz \
+    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/literature_references.txt.gz \
+    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/mirna_chromosome_build.txt.gz \
+    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/mirna_mature.txt.gz \
+    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/mirna_pre_mature.txt.gz \
+    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/mirna_species.txt.gz \
+    && gunzip confidence_score.txt.gz \
+    && gunzip confidence.txt.gz \
+    && gunzip dead_mirna.txt.gz \
+    && gunzip experiment_pre_read.txt.gz \
+    && gunzip experiment.txt.gz \
+    && gunzip literature_references.txt.gz \
+    && gunzip mirna_chromosome_build.txt.gz \
+    && gunzip mirna_mature.txt.gz \
+    && gunzip mirna_pre_mature.txt.gz \
+    && gunzip mirna_species.txt.gz \
+    && mv confidence_score.txt confidence_score.tsv \
+    && mv confidence.txt confidence.tsv \
+    && mv dead_mirna.txt dead_mirna.tsv \
+    && mv experiment_pre_read.txt experiment_pre_read.tsv \
+    && mv experiment.txt experiment.tsv \
+    && mv literature_references.txt literature_references.tsv \
+    && mv mirna_chromosome_build.txt mirna_chromosome_build.tsv \
+    && mv mirna_mature.txt mirna_mature.tsv \
+    && mv mirna_pre_mature.txt mirna_pre_mature.tsv \
+    && mv mirna_species.txt mirna_species.tsvw \
+    && cat tables.sql | mysql --user=root --database=hg38 \
+    && mysqlimport --user root hg38 confidence_score.tsv \
+    && mysqlimport --user root hg38 confidence.tsv \
+    && mysqlimport --user root hg38 dead_mirna.tsv \
+    && mysqlimport --user root hg38 experiment_pre_read.tsv \
+    && mysqlimport --user root hg38 experiment.tsv \
+    && mysqlimport --user root hg38 literature_references.tsv \
+    && mysqlimport --user root hg38 mirna_chromosome_build.tsv \
+    && mysqlimport --user root hg38 mirna_mature.tsv \
+    && mysqlimport --user root hg38 mirna_pre_mature.tsv \
+    && mysqlimport --user root hg38 mirna_pre_mature.tsv \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* *.sql *.tsv \
     && mysqladmin shutdown \
     && cd /
