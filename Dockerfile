@@ -11,6 +11,7 @@ RUN apt-get update \
     libdbi-perl \
     mysql-client-5.7 \
     mysql-server-5.7 \
+    r-base-core \
     vim \
     wget \
     && cd /root/ \
