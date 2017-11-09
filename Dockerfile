@@ -109,7 +109,7 @@ RUN apt-get update \
     && mysqlimport --user root hg38 mirna_chromosome_build.tsv \
     && mysqlimport --user root hg38 mirna_mature.tsv \
     && mysqlimport --user root hg38 mirna_pre_mature.tsv \
-    && mysqlimport --user root hg38 mirna_pre_mature.tsv \
+    && mysqlimport --user root hg38 mirna_species.tsv \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* *.sql *.tsv \
     && mysqladmin shutdown \
     && cd /
