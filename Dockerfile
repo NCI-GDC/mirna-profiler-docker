@@ -15,6 +15,7 @@ RUN apt-get update \
     wget \
     && cd /root/ \
     && git clone https://github.com/bcgsc/mirna.git \
+    && echo "hg38\tlocalhost\troot\t" >> /root/mirna/v0.2.7/config/db_connections.cfg \
     && mkdir /var/run/mysqld \
     && chown mysql:mysql /var/run/mysqld \
     && echo "secure-file-priv = \"\"" >> /etc/mysql/mysql.conf.d/mysqld.cnf \
