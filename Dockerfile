@@ -98,7 +98,7 @@ RUN apt-get update \
     && mv mirna_chromosome_build.txt mirna_chromosome_build.tsv \
     && mv mirna_mature.txt mirna_mature.tsv \
     && mv mirna_pre_mature.txt mirna_pre_mature.tsv \
-    && mv mirna_species.txt mirna_species.tsvw \
+    && mv mirna_species.txt mirna_species.tsv \
     && cat tables.sql | mysql --user=root --database=hg38 \
     && mysqlimport --user root hg38 confidence_score.tsv \
     && mysqlimport --user root hg38 confidence.tsv \
