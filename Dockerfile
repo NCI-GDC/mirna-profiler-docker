@@ -16,7 +16,7 @@ RUN apt-get update \
     && git clone https://github.com/bcgsc/mirna.git \
     && mkdir /var/run/mysqld \
     && chown mysql:mysql /var/run/mysqld \
-    && echo "secure-file-priv = \"\"" >> /etc/mysql/mysql.conf.d/mysqld.cnf
+    && echo "secure-file-priv = \"\"" >> /etc/mysql/mysql.conf.d/mysqld.cnf \
     && /usr/sbin/mysqld --defaults-file=/etc/mysql/my.cnf --user=mysql --daemonize \
     && mysql -e "create database hg38" \
     && cd /var/lib/mysql/hg38/ \
