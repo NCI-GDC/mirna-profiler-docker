@@ -19,7 +19,7 @@ RUN apt-get update \
     && echo "secure-file-priv = \"\"" >> /etc/mysql/mysql.conf.d/mysqld.cnf
     && /usr/sbin/mysqld --defaults-file=/etc/mysql/my.cnf --user=mysql --daemonize \
     && mysql -e "create database hg38" \
-    && cd /var/lib/mysql/hg38/
+    && cd /var/lib/mysql/hg38/ \
     && wget http://hgdownload.cse.ucsc.edu/goldenpath/hg38/database/kgXref.sql \
     && wget http://hgdownload.cse.ucsc.edu/goldenpath/hg38/database/kgXref.txt.gz \
     && wget http://hgdownload.cse.ucsc.edu/goldenpath/hg38/database/knownGene.sql \
