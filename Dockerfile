@@ -10,6 +10,7 @@ RUN apt-get update \
     libdbi-perl \
     mysql-client-5.7 \
     mysql-server-5.7 \
+    vim \
     wget \
     && cd /root/ \
     && git clone https://github.com/bcgsc/mirna.git \
@@ -24,7 +25,11 @@ RUN apt-get update \
     && wget http://hgdownload.cse.ucsc.edu/goldenpath/hg38/database/rmsk.sql \
     && wget http://hgdownload.cse.ucsc.edu/goldenpath/hg38/database/rmsk.txt.gz \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
-    && echo "db.user=browser" >> .hg.conf && echo "db.password=genome" >> .hg.conf && echo "central.user=browser" >> .hg.conf && echo "central.password=genome" >> .hg.conf && echo "central.db=hgcentral" >> .hg.conf && chmod 400 .hg.conf \
+    && echo "db.user=root" >> .hg.conf && echo "db.password=genome" >> .hg.conf && echo "central.user=root" >> .hg.conf && echo "central.password=genome" >> .hg.conf && echo "central.db=hgcentral" >> .hg.conf && chmod 400 .hg.conf \
     && mkdir /var/run/mysqld \
     && chown mysql:mysql /var/run/mysqld \
+    # && /usr/sbin/mysqld --defaults-file=/etc/mysql/my.cnf --user=mysql --daemonize \
+    # && mysql -e "create database hg38" \
+    # && cat kgXref.sql | mysql --user=root --database=hg38 \
+    # && zcat kgXref.txt.gz | mysqlimport --user=root --database=hg38 \
     && cd -
