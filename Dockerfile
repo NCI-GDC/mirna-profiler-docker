@@ -44,5 +44,5 @@ RUN apt-get update \
     && mysqlimport --user root hg38 knownGene.tsv \
     && mysqlimport --user root hg38 refGene.tsv \
     && mysqlimport --user root hg38 rmsk.tsv \
-    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* *.sql *.tsv \
     && cd /
