@@ -15,7 +15,7 @@ RUN apt-get update \
     vim \
     wget \
     && cd /root/ \
-    && git clone https://github.com/bcgsc/mirna.git \
+    && git clone -b cwl https://github.com/NCI-GDC/mirna.git \
     && echo "hg38\tlocalhost\troot\t" >> /root/mirna/v0.2.7/config/db_connections.cfg \
     && mkdir /var/run/mysqld \
     && chown mysql:mysql /var/run/mysqld \
