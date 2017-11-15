@@ -177,7 +177,7 @@ RUN apt-get update \
     && mysqlimport --user root mirbase mirna_prefam.tsv \
     && mysqlimport --user root mirbase mirna_pre_mature.tsv \
     && mysqlimport --user root mirbase mirna_pre_read.tsv \
-    && mysqlimport --user root mirbase mirna_read_count_by_experiment.tsv \
+    #&& mysqlimport --user root mirbase mirna_read_count_by_experiment.tsv \ # mirbase.mirna_read_count_by_experiment: Records: 5575201 Deleted: 0 Skipped: 0 Warnings: 0 \n # 11/15/2017, 6:49:13 PM mysqlimport: Error: 1262, Row 1 was truncated; it contained more data than there were input columns, when using table: mirna_read_count
     && mysqlimport --user root mirbase mirna_read_count.tsv \
     && mysqlimport --user root mirbase mirna_read_experiment_count.tsv \
     && mysqlimport --user root mirbase mirna_read.tsv \
