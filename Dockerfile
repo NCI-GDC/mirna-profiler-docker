@@ -166,8 +166,8 @@ RUN apt-get update \
     && mysqlimport --user root mirbase experiment.tsv \
     && mysqlimport --user root mirbase literature_references.tsv \
     && mysqlimport --user root mirbase mature_pre_read.tsv \
-    && mysqlimport --user root mirbase mature_read_count_by_experiment.tsv
-    && mysqlimport --user root mirbase mature_read_count.tsv
+    && mysqlimport --user root mirbase mature_read_count_by_experiment.tsv \
+    && mysqlimport --user root mirbase mature_read_count.tsv \
     && mysqlimport --user root mirbase mirna_2_prefam.tsv \
     && mysqlimport --user root mirbase mirna2wikipedia.tsv \
     && mysqlimport --user root mirbase mirna_chromosome_build.tsv \
