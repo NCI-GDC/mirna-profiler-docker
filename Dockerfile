@@ -112,7 +112,7 @@ RUN apt-get update \
     && gunzip literature_references.txt.gz \
     && gunzip mature_pre_read.txt.gz \
     && gunzip mature_read_count_by_experiment.txt.gz \
-    && guznip mature_read_count.txt.gz \
+    && gunzip mature_read_count.txt.gz \
     && gunzip mirna_2_prefam.txt.gz \
     && gunzip mirna2wikipedia.txt.gz \
     && gunzip mirna_chromosome_build.txt.gz \
