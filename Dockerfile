@@ -151,8 +151,8 @@ RUN apt-get update \
     && mv mirna_pre_read.txt mirna_pre_read.tsv \
     && mv mirna_read_count_by_experiment.txt mirna_read_count_by_experiment.tsv \
     && mv mirna_read_count.txt mirna_read_count.tsv \
-    && awk 'BEGIN{FS=OFS="\t"}{print $1,$2,$3,$4}' mirna_read_count.tsv > mirna_read_count.tsv.trunc \
-    && mv mirna_read_count.tsv.trunc mirna_read_count.tsv \
+    #&& awk 'BEGIN{FS=OFS="\t"}{print $1,$2,$3,$4}' mirna_read_count.tsv > mirna_read_count.tsv.trunc \
+    #&& mv mirna_read_count.tsv.trunc mirna_read_count.tsv \
     && mv mirna_read_experiment_count.txt mirna_read_experiment_count.tsv \
     && mv mirna_read.txt mirna_read.tsv \
     && mv mirna_species.txt mirna_species.tsv \
