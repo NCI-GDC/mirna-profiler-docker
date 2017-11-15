@@ -17,6 +17,7 @@ RUN apt-get update \
     && cd /root/ \
     && git clone -b cwl https://github.com/NCI-GDC/mirna.git \
     && echo "hg38\tlocalhost\troot\t" >> /root/mirna/v0.2.7/config/db_connections.cfg \
+    && echo "mirbase\tlocalhost\troot\t" >> /root/mirna/v0.2.7/config/db_connections.cfg \
     && mkdir /var/run/mysqld \
     && chown mysql:mysql /var/run/mysqld \
     && echo "secure-file-priv = \"\"" >> /etc/mysql/mysql.conf.d/mysqld.cnf \
@@ -71,6 +72,8 @@ RUN apt-get update \
     && mysqlimport --user root hg38 knownGene.tsv \
     && mysqlimport --user root hg38 refGene.tsv \
     && mysqlimport --user root hg38 rmsk.tsv \
+    && mysql -e "create database mirbase" \
+    && cd /var/lib/mysql/mirbase/ \
     && wget ftp://mirbase.org/pub/mirbase/CURRENT/0_THIS_IS_RELEASE_21 \
     && wget ftp://mirbase.org/pub/mirbase/CURRENT/README \
     && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/tables.sql \
@@ -115,6 +118,6 @@ RUN apt-get update \
     && mysqlimport --user root hg38 mirna_mature.tsv \
     && mysqlimport --user root hg38 mirna_pre_mature.tsv \
     && mysqlimport --user root hg38 mirna_species.tsv \
-    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* *.sql *.tsv \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /var/lib/mysql/hg38/*.sql /var/lib/mysql/hg38/*.tsv /var/lib/mysql/mirbase/*.sql /var/lib/mysql/mirbase/*.tsv \
     && mysqladmin shutdown \
     && cd /
