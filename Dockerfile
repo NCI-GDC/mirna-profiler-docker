@@ -107,17 +107,17 @@ RUN apt-get update \
     && mv mirna_mature.txt mirna_mature.tsv \
     && mv mirna_pre_mature.txt mirna_pre_mature.tsv \
     && mv mirna_species.txt mirna_species.tsv \
-    && cat tables.sql | mysql --user=root --database=hg38 \
-    && mysqlimport --user root hg38 confidence_score.tsv \
-    && mysqlimport --user root hg38 confidence.tsv \
-    && mysqlimport --user root hg38 dead_mirna.tsv \
-    && mysqlimport --user root hg38 experiment_pre_read.tsv \
-    && mysqlimport --user root hg38 experiment.tsv \
-    && mysqlimport --user root hg38 literature_references.tsv \
-    && mysqlimport --user root hg38 mirna_chromosome_build.tsv \
-    && mysqlimport --user root hg38 mirna_mature.tsv \
-    && mysqlimport --user root hg38 mirna_pre_mature.tsv \
-    && mysqlimport --user root hg38 mirna_species.tsv \
+    && cat tables.sql | mysql --user=root --database=mirbase \
+    && mysqlimport --user root mirbase confidence_score.tsv \
+    && mysqlimport --user root mirbase confidence.tsv \
+    && mysqlimport --user root mirbase dead_mirna.tsv \
+    && mysqlimport --user root mirbase experiment_pre_read.tsv \
+    && mysqlimport --user root mirbase experiment.tsv \
+    && mysqlimport --user root mirbase literature_references.tsv \
+    && mysqlimport --user root mirbase mirna_chromosome_build.tsv \
+    && mysqlimport --user root mirbase mirna_mature.tsv \
+    && mysqlimport --user root mirbase mirna_pre_mature.tsv \
+    && mysqlimport --user root mirbase mirna_species.tsv \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /var/lib/mysql/hg38/*.sql /var/lib/mysql/hg38/*.tsv /var/lib/mysql/mirbase/*.sql /var/lib/mysql/mirbase/*.tsv \
     && mysqladmin shutdown \
     && cd /
