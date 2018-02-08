@@ -16,8 +16,10 @@ RUN apt-get update \
     vim \
     wget \
     && adduser --disabled-password --gecos '' ubuntu && adduser ubuntu sudo && echo "ubuntu    ALL=(ALL)   NOPASSWD:ALL" >> /etc/sudoers.d/ubuntu \
-    && cd /root/ \
+    && cd /usr/ \
     && git clone -b cwl https://github.com/NCI-GDC/mirna.git \
+    && chown -R ubuntu.ubuntu /usr/mirna \
+    && cd /root/ \
     && echo "hg38\tlocalhost\troot\t" >> /root/mirna/v0.2.7/config/db_connections.cfg \
     && echo "mirbase\tlocalhost\troot\t" >> /root/mirna/v0.2.7/config/db_connections.cfg \
     && mkdir /var/run/mysqld \
