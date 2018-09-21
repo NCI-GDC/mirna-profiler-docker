@@ -87,36 +87,36 @@ RUN apt-get update \
     && mysqlimport --user root hg38 rmsk.tsv \
     && mysql -e "create database mirbase" \
     && cd /var/lib/mysql/mirbase/ \
-    && wget ftp://mirbase.org/pub/mirbase/CURRENT/0_THIS_IS_RELEASE_21 \
-    && wget ftp://mirbase.org/pub/mirbase/CURRENT/README \
-    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/tables.sql \
-    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/confidence_score.txt.gz \
-    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/confidence.txt.gz \
-    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/dead_mirna.txt.gz \
-    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/experiment_pre_read.txt.gz \
-    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/experiment.txt.gz \
-    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/literature_references.txt.gz \    
-    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/mature_pre_read.txt.gz \
-    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/mature_read_count_by_experiment.txt.gz \
-    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/mature_read_count.txt.gz \
-    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/mirna_2_prefam.txt.gz \
-    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/mirna2wikipedia.txt.gz \
-    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/mirna_chromosome_build.txt.gz \
-    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/mirna_context.txt.gz \
-    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/mirna_database_links.txt.gz \
-    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/mirna_mature.txt.gz \
-    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/mirna_prefam.txt.gz \
-    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/mirna_pre_mature.txt.gz \
-    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/mirna_pre_read.txt.gz \
-    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/mirna_read_count_by_experiment.txt.gz \
-    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/mirna_read_count.txt.gz \
-    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/mirna_read_experiment_count.txt.gz \
-    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/mirna_read.txt.gz \
-    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/mirna_species.txt.gz \
-    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/mirna_target_links.txt.gz \
-    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/mirna_target_url.txt.gz \
-    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/mirna.txt.gz \
-    && wget ftp://mirbase.org/pub/mirbase/CURRENT/database_files/wikipedia.txt.gz \
+    && wget ftp://mirbase.org/pub/mirbase/21/0_THIS_IS_RELEASE_21 \
+    && wget ftp://mirbase.org/pub/mirbase/21/README \
+    && wget ftp://mirbase.org/pub/mirbase/21/database_files/tables.sql \
+    && wget ftp://mirbase.org/pub/mirbase/21/database_files/confidence_score.txt.gz \
+    && wget ftp://mirbase.org/pub/mirbase/21/database_files/confidence.txt.gz \
+    && wget ftp://mirbase.org/pub/mirbase/21/database_files/dead_mirna.txt.gz \
+    && wget ftp://mirbase.org/pub/mirbase/21/database_files/experiment_pre_read.txt.gz \
+    && wget ftp://mirbase.org/pub/mirbase/21/database_files/experiment.txt.gz \
+    && wget ftp://mirbase.org/pub/mirbase/21/database_files/literature_references.txt.gz \    
+    && wget ftp://mirbase.org/pub/mirbase/21/database_files/mature_pre_read.txt.gz \
+    && wget ftp://mirbase.org/pub/mirbase/21/database_files/mature_read_count_by_experiment.txt.gz \
+    && wget ftp://mirbase.org/pub/mirbase/21/database_files/mature_read_count.txt.gz \
+    && wget ftp://mirbase.org/pub/mirbase/21/database_files/mirna_2_prefam.txt.gz \
+    && wget ftp://mirbase.org/pub/mirbase/21/database_files/mirna2wikipedia.txt.gz \
+    && wget ftp://mirbase.org/pub/mirbase/21/database_files/mirna_chromosome_build.txt.gz \
+    && wget ftp://mirbase.org/pub/mirbase/21/database_files/mirna_context.txt.gz \
+    && wget ftp://mirbase.org/pub/mirbase/21/database_files/mirna_database_links.txt.gz \
+    && wget ftp://mirbase.org/pub/mirbase/21/database_files/mirna_mature.txt.gz \
+    && wget ftp://mirbase.org/pub/mirbase/21/database_files/mirna_prefam.txt.gz \
+    && wget ftp://mirbase.org/pub/mirbase/21/database_files/mirna_pre_mature.txt.gz \
+    && wget ftp://mirbase.org/pub/mirbase/21/database_files/mirna_pre_read.txt.gz \
+    && wget ftp://mirbase.org/pub/mirbase/21/database_files/mirna_read_count_by_experiment.txt.gz \
+    && wget ftp://mirbase.org/pub/mirbase/21/database_files/mirna_read_count.txt.gz \
+    && wget ftp://mirbase.org/pub/mirbase/21/database_files/mirna_read_experiment_count.txt.gz \
+    && wget ftp://mirbase.org/pub/mirbase/21/database_files/mirna_read.txt.gz \
+    && wget ftp://mirbase.org/pub/mirbase/21/database_files/mirna_species.txt.gz \
+    && wget ftp://mirbase.org/pub/mirbase/21/database_files/mirna_target_links.txt.gz \
+    && wget ftp://mirbase.org/pub/mirbase/21/database_files/mirna_target_url.txt.gz \
+    && wget ftp://mirbase.org/pub/mirbase/21/database_files/mirna.txt.gz \
+    && wget ftp://mirbase.org/pub/mirbase/21/database_files/wikipedia.txt.gz \
     && gunzip confidence_score.txt.gz \
     && gunzip confidence.txt.gz \
     && gunzip dead_mirna.txt.gz \
