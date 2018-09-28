@@ -19,12 +19,15 @@ RUN apt-get update \
     sudo \
     vim \
     wget \
-    && _group=$(getent group $mirna_groupid) && if [ -z $_group ]; then groupadd -g $mirna_groupid $mirna_group; \
+    && _group=$(getent group $mirna_groupid); if [ -z $_group ]; then groupadd -g $mirna_groupid $mirna_group; \
     else group=$(echo $_group | cut -d: -f1 ); if [ "$group" != "$mirna_group" ];then groupmod -n $mirna_group $group ;fi;fi \
     && if $(id ${mirna_userid} 2>1 > /dev/null); then user=$(getent passwd "$mirna_userid" | cut -d: -f1 ); \
     if [ "$user" != "$mirna_user"  ]; then usermod -l $mirna_user $user;fi; \
     else adduser --disabled-password --gecos '' --uid $mirna_userid --gid $mirna_userid $mirna_user;fi \
     && adduser $mirna_user sudo && echo "$mirna_user    ALL=(ALL)   NOPASSWD:ALL" >> /etc/sudoers.d/$mirna_user \
+    && _dgroup=$(getent group 1000); if [ -z $_dgroup ]; then groupadd -g 1000 default; fi \
+    && if ! $(id 1000 2>1 > /dev/null); then adduser --disabled-password --gecos '' --uid 1000 --gid 1000 default \
+    && adduser default sudo && adduser default $mirna_group && echo "default    ALL=(ALL)   NOPASSWD:ALL" >> /etc/sudoers.d/default; fi \
     && cd /usr/ \
     && git clone -b cwl https://github.com/NCI-GDC/mirna.git \
     && echo "hg38\tlocalhost\troot\t" >> /usr/mirna/v0.2.7/config/db_connections.cfg \
