@@ -1,6 +1,6 @@
 FROM ubuntu:artful-20171019
 
-ENV mirna-profiler 0.1
+ENV mirna-profiler 0.2
 ENV mirna_userid 33
 ENV mirna_user ubuntu
 ENV mirna_groupid 33
@@ -30,8 +30,8 @@ RUN apt-get update \
     && adduser default sudo && adduser default $mirna_group && echo "default    ALL=(ALL)   NOPASSWD:ALL" >> /etc/sudoers.d/default; fi \
     && cd /usr/ \
     && git clone -b cwl https://github.com/NCI-GDC/mirna.git \
-    && echo "hg38\tlocalhost\troot\t" >> /usr/mirna/v0.2.7/config/db_connections.cfg \
-    && echo "mirbase\tlocalhost\troot\t" >> /usr/mirna/v0.2.7/config/db_connections.cfg \
+    && echo "hg38\tlocalhost\troot\t" >> /usr/mirna/config/db_connections.cfg \
+    && echo "mirbase\tlocalhost\troot\t" >> /usr/mirna/config/db_connections.cfg \
     && chown -R ${mirna_user}.${mirna_group} /usr/mirna \
     && cd /root/ \
     && mkdir /var/run/mysqld \
