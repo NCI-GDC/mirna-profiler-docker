@@ -8,7 +8,9 @@ FROM ${REPOSITORY}/ncigdc/amzn2023-builder:${BUILDER_TAG} AS builder
 
 ARG VERSION
 
-RUN dnf -y install \
+RUN set -eux; \
+  dnf -y makecache; \
+  dnf -y install --nobest --allowerasing \
     git \
     wget \
     tar \
@@ -17,12 +19,15 @@ RUN dnf -y install \
     xz \
     findutils \
     ca-certificates \
-    && dnf clean all
+  ; \
+  dnf clean all
 
+# mirna code (cwl branch)
 RUN mkdir -p /out/usr \
  && git clone -b cwl https://github.com/NCI-GDC/mirna.git /out/usr/mirna \
  && rm -rf /out/usr/mirna/.git
 
+# hg38 seed files (same set + same rename behavior as legacy Dockerfile)
 RUN set -eux; \
   mkdir -p /out/seed/hg38; \
   cd /out/seed/hg38; \
@@ -59,6 +64,7 @@ RUN set -eux; \
   mv rmsk.txt rmsk.tsv; \
   mv trackDb.txt trackDb.tsv
 
+# mirbase v21 seed files (same processing as legacy Dockerfile)
 RUN set -eux; \
   mkdir -p /out/seed/mirbase; \
   cd /out/seed/mirbase; \
@@ -102,49 +108,69 @@ RUN set -eux; \
   awk 'BEGIN{FS=OFS="\t"}{print $1,$2,$3,$4}' mirna_read_count.tsv > mirna_read_count.tsv.trunc; \
   mv mirna_read_count.tsv.trunc mirna_read_count.tsv
 
+
 # -----------------------------
-# Runtime (amzn2023 + dnf)
+# Runtime (amzn2023 + dnf): install deps, configure users, bake DBs, shutdown
 # -----------------------------
 FROM ${REPOSITORY}/ncigdc/amzn2023:${BUILDER_TAG}
 
 ARG VERSION
 
+# Keep legacy env intent (original had invalid ENV key "mirna-profiler")
 ENV mirna_profiler=0.2.8gdc
 ENV mirna_userid=33
 ENV mirna_user=ubuntu
 ENV mirna_groupid=33
 ENV mirna_group=ubuntu
 
-# Install runtime deps with fallbacks for AL2023 repo differences
+# Install runtime deps with robust fallbacks so the build completes even if repos differ
 RUN set -eux; \
-  dnf -y install \
+  dnf -y makecache; \
+  \
+  # Core packages that virtually always exist
+  dnf -y install --nobest --allowerasing \
     git \
     wget \
     sudo \
     perl \
     perl-DBI \
-    perl-DBD-MySQL \
     shadow-utils \
-    findutils \
     gzip \
     tar \
     ca-certificates \
   ; \
-  # vim package varies by repo
-  (dnf -y install vim-enhanced || dnf -y install vim || true); \
-  # MariaDB packages vary: try mariadb105*, then fallback to mariadb*
-  (dnf -y install mariadb105 mariadb105-server mariadb105-client \
-    || dnf -y install mariadb mariadb-server mariadb-client \
-    || dnf -y install mariadb-server mariadb) \
-  ; \
-  # R is optional; keep behavior similar to original, but don't fail build if repos don't have it
-  (dnf -y install R || dnf -y install R-core || true); \
+  \
+  # Optional / varying names across images
+  (dnf -y install --nobest --allowerasing findutils || true); \
+  (dnf -y install --nobest --allowerasing vim-enhanced \
+    || dnf -y install --nobest --allowerasing vim \
+    || dnf -y install --nobest --allowerasing vim-minimal \
+    || true); \
+  \
+  # Perl DBD driver name varies
+  (dnf -y install --nobest --allowerasing perl-DBD-MySQL \
+    || dnf -y install --nobest --allowerasing perl-DBD-MariaDB \
+    || true); \
+  \
+  # DB packages vary a lot; try common sets
+  (dnf -y install --nobest --allowerasing mariadb-server mariadb mariadb-client \
+    || dnf -y install --nobest --allowerasing mariadb105-server mariadb105 mariadb105-client \
+    || dnf -y install --nobest --allowerasing community-mysql-server community-mysql \
+    || true); \
+  \
+  # R may not exist in enabled repos; keep optional
+  (dnf -y install --nobest --allowerasing R \
+    || dnf -y install --nobest --allowerasing R-core \
+    || true); \
+  \
   dnf clean all
 
+# Bring in mirna code + seed files
 COPY --from=builder /out/usr/mirna /usr/mirna
 COPY --from=builder /out/seed/hg38 /opt/seed/hg38
 COPY --from=builder /out/seed/mirbase /opt/seed/mirbase
 
+# Create group/user (idempotent, fixed vs legacy's broken id checks)
 RUN set -eux; \
   if ! getent group "${mirna_groupid}" >/dev/null; then \
     groupadd -g "${mirna_groupid}" "${mirna_group}"; \
@@ -161,6 +187,7 @@ RUN set -eux; \
   usermod -aG wheel "${mirna_user}"; \
   echo "${mirna_user} ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/${mirna_user}"; \
   chmod 0440 "/etc/sudoers.d/${mirna_user}"; \
+  \
   if ! getent group 1000 >/dev/null; then groupadd -g 1000 default; fi; \
   if ! getent passwd 1000 >/dev/null; then \
     useradd -m -u 1000 -g 1000 -s /bin/bash default; \
@@ -170,15 +197,25 @@ RUN set -eux; \
     chmod 0440 /etc/sudoers.d/default; \
   fi
 
+# Legacy db_connections.cfg lines + ownership
 RUN set -eux; \
   echo -e "hg38\tlocalhost\troot\t" >> /usr/mirna/config/db_connections.cfg; \
   echo -e "mirbase\tlocalhost\troot\t" >> /usr/mirna/config/db_connections.cfg; \
   chown -R "${mirna_user}.${mirna_group}" /usr/mirna
 
+# Bake hg38 + mirbase databases into /var/lib/mysql during build, then shutdown
 RUN set -eux; \
+  \
+  # Fail fast if no DB server was installed
+  if ! command -v mariadbd >/dev/null 2>&1 && ! command -v mysqld >/dev/null 2>&1; then \
+    echo "ERROR: No MariaDB/MySQL daemon found. Ensure mariadb-server (or equivalent) is available in dnf repos." >&2; \
+    exit 1; \
+  fi; \
+  \
   mkdir -p /var/run/mysqld; \
   chown -R mysql:mysql /var/run/mysqld; \
-  # disable secure-file-priv (path varies)
+  \
+  # Disable secure-file-priv (path varies by package)
   if [ -f /etc/my.cnf.d/mariadb-server.cnf ]; then \
     echo 'secure-file-priv=""' >> /etc/my.cnf.d/mariadb-server.cnf; \
   elif [ -f /etc/my.cnf.d/server.cnf ]; then \
@@ -186,23 +223,28 @@ RUN set -eux; \
   else \
     echo 'secure-file-priv=""' >> /etc/my.cnf; \
   fi; \
-  mariadbd --user=mysql --datadir=/var/lib/mysql \
-           --socket=/var/run/mysqld/mysqld.sock \
-           --pid-file=/var/run/mysqld/mysqld.pid \
-           --bind-address=127.0.0.1 --daemonize; \
-  mysqladmin --protocol=socket --socket=/var/run/mysqld/mysqld.sock ping --silent --wait=30; \
   \
+  if command -v mariadbd >/dev/null 2>&1; then DB_DAEMON="mariadbd"; else DB_DAEMON="mysqld"; fi; \
+  $DB_DAEMON --user=mysql --datadir=/var/lib/mysql \
+    --socket=/var/run/mysqld/mysqld.sock \
+    --pid-file=/var/run/mysqld/mysqld.pid \
+    --bind-address=127.0.0.1 --daemonize; \
+  \
+  mysqladmin --protocol=socket --socket=/var/run/mysqld/mysqld.sock ping --silent --wait=60; \
+  \
+  # hg38
   mysql --protocol=socket --socket=/var/run/mysqld/mysqld.sock -e "create database hg38"; \
   cd /opt/seed/hg38; \
-  cat kgXref.sql     | mysql --protocol=socket --socket=/var/run/mysqld/mysqld.sock --user=root --database=hg38; \
-  cat knownGene.sql  | mysql --protocol=socket --socket=/var/run/mysqld/mysqld.sock --user=root --database=hg38; \
-  cat refGene.sql    | mysql --protocol=socket --socket=/var/run/mysqld/mysqld.sock --user=root --database=hg38; \
-  cat rmsk.sql       | mysql --protocol=socket --socket=/var/run/mysqld/mysqld.sock --user=root --database=hg38; \
+  cat kgXref.sql    | mysql --protocol=socket --socket=/var/run/mysqld/mysqld.sock --user=root --database=hg38; \
+  cat knownGene.sql | mysql --protocol=socket --socket=/var/run/mysqld/mysqld.sock --user=root --database=hg38; \
+  cat refGene.sql   | mysql --protocol=socket --socket=/var/run/mysqld/mysqld.sock --user=root --database=hg38; \
+  cat rmsk.sql      | mysql --protocol=socket --socket=/var/run/mysqld/mysqld.sock --user=root --database=hg38; \
   mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root hg38 kgXref.tsv; \
   mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root hg38 knownGene.tsv; \
   mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root hg38 refGene.tsv; \
   mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root hg38 rmsk.tsv; \
   \
+  # mirbase
   mysql --protocol=socket --socket=/var/run/mysqld/mysqld.sock -e "create database mirbase"; \
   cd /opt/seed/mirbase; \
   cat tables.sql | mysql --protocol=socket --socket=/var/run/mysqld/mysqld.sock --user=root --database=mirbase; \
@@ -210,6 +252,7 @@ RUN set -eux; \
     mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root mirbase "$t"; \
   done; \
   \
+  # Cleanup (seed files no longer needed, mirrors legacy cleanup intent)
   rm -rf /opt/seed; \
   mysqladmin --protocol=socket --socket=/var/run/mysqld/mysqld.sock shutdown; \
   cd /
