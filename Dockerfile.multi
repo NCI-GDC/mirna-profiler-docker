@@ -10,13 +10,12 @@ ARG https_proxy
 ARG no_proxy
 
 # -----------------------------
-# Builder: clone mirna + download seed files
+# Builder (amzn2023-builder + dnf): fetch mirna repo + seed files
 # -----------------------------
 FROM ${REPOSITORY}/ncigdc/amzn2023-builder:${BUILDER_TAG} AS builder
 
 ARG VERSION
 
-# Proxy args in this stage too
 ARG HTTP_PROXY
 ARG HTTPS_PROXY
 ARG NO_PROXY
@@ -24,7 +23,6 @@ ARG http_proxy
 ARG https_proxy
 ARG no_proxy
 
-# Make proxy available to curl/git/wget inside the build container
 ENV HTTP_PROXY=${HTTP_PROXY}
 ENV HTTPS_PROXY=${HTTPS_PROXY}
 ENV NO_PROXY=${NO_PROXY}
@@ -32,13 +30,9 @@ ENV http_proxy=${http_proxy}
 ENV https_proxy=${https_proxy}
 ENV no_proxy=${no_proxy}
 
-# Avoid any interactive auth prompts
-ENV GIT_TERMINAL_PROMPT=0
-
 RUN set -eux; \
   dnf -y makecache --refresh; \
   dnf -y install \
-    git \
     wget \
     tar \
     gzip \
@@ -48,22 +42,16 @@ RUN set -eux; \
     ca-certificates; \
   dnf clean all
 
-# Configure git to use proxy if provided
-RUN set -eux; \
-  if [ -n "${https_proxy:-${HTTPS_PROXY:-}}" ]; then \
-    p="${https_proxy:-${HTTPS_PROXY}}"; \
-    git config --global https.proxy "${p}"; \
-  fi; \
-  if [ -n "${http_proxy:-${HTTP_PROXY:-}}" ]; then \
-    p="${http_proxy:-${HTTP_PROXY}}"; \
-    git config --global http.proxy "${p}"; \
-  fi
-
-# Clone mirna-mirror (cwl branch)
+# --- MIRNA SOURCE (NO GIT) ---
+# Same repo, same branch, but fetched as a tarball to avoid git auth prompts.
+# (GitHub tarball endpoints)
+ARG MIRNA_REF=cwl
 RUN set -eux; \
   mkdir -p /out/usr; \
-  git -c credential.helper= clone --depth 1 -b cwl https://github.com/NCI-GDC/mirna-mirror.git /out/usr/mirna; \
-  rm -rf /out/usr/mirna/.git || true
+  wget -O /tmp/mirna.tar.gz "https://codeload.github.com/NCI-GDC/mirna-mirror/tar.gz/refs/heads/${MIRNA_REF}"; \
+  tar -xzf /tmp/mirna.tar.gz -C /out/usr; \
+  rm -f /tmp/mirna.tar.gz; \
+  mv "/out/usr/mirna-mirror-${MIRNA_REF}" /out/usr/mirna
 
 # hg38 seed files
 RUN set -eux; \
@@ -148,13 +136,12 @@ RUN set -eux; \
 
 
 # -----------------------------
-# Runtime: install deps + bake DBs (like original)
+# Runtime (amzn2023 + dnf): install deps, configure users, bake DBs
 # -----------------------------
 FROM ${REPOSITORY}/ncigdc/amzn2023:${BUILDER_TAG}
 
 ARG VERSION
 
-# Proxy args in runtime too (helps dnf in some environments)
 ARG HTTP_PROXY
 ARG HTTPS_PROXY
 ARG NO_PROXY
@@ -198,7 +185,7 @@ RUN set -eux; \
   (dnf -y install R || dnf -y install R-core || true); \
   dnf clean all || true
 
-# DB server/client (MANDATORY for original behavior)
+# DB server/client (MANDATORY)
 RUN set -eux; \
   if dnf -y install mariadb-server mariadb mariadb-client; then \
     echo "Installed mariadb-server"; \

@@ -20,6 +20,11 @@ BRANCH="${BRANCH-}"
 BUILD_ROOT_DIR=$(pwd)
 GIT_SHORT_HASH=$(git rev-parse --short HEAD)
 
+# NEW (minimal): prefer standard proxy envs if present, else fall back to PROXY
+HTTP_PROXY_VAL="${HTTP_PROXY:-${http_proxy:-${PROXY}}}"
+HTTPS_PROXY_VAL="${HTTPS_PROXY:-${https_proxy:-${PROXY}}}"
+NO_PROXY_VAL="${NO_PROXY:-${no_proxy:-}}"
+
 # Initialize Registry array
 REGISTRIES=()
 if [ "$BRANCH" = "$CI_DEFAULT_BRANCH" ] || [ -n "$SCM_TAG" ]; then
@@ -66,8 +71,12 @@ for directory in *; do
   			--label org.opencontainers.image.created="$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
   			--label org.opencontainers.image.revision="${GIT_SHORT_HASH}" \
   			--label org.opencontainers.ref.name="${SOFTWARE}:${directory}" \
-  			--build-arg http_proxy="${PROXY}" \
-  			--build-arg https_proxy="${PROXY}" \
+  			--build-arg http_proxy="${HTTP_PROXY_VAL}" \
+  			--build-arg https_proxy="${HTTPS_PROXY_VAL}" \
+  			--build-arg no_proxy="${NO_PROXY_VAL}" \
+  			--build-arg HTTP_PROXY="${HTTP_PROXY_VAL}" \
+  			--build-arg HTTPS_PROXY="${HTTPS_PROXY_VAL}" \
+  			--build-arg NO_PROXY="${NO_PROXY_VAL}" \
   			--build-arg VERSION="${directory}" \
   			--build-arg REGISTRY="${BASE_CONTAINER_REGISTRY}"
 
