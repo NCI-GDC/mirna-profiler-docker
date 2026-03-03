@@ -2,13 +2,13 @@ ARG REPOSITORY=docker.osdc.io
 ARG BUILDER_TAG=3.1.0
 
 # -----------------------------
-# Builder (amzn2023-builder + dnf): fetch mirna repo + DB seed files
+# Builder (amzn2023-builder + dnf): fetch mirna repo + seed files
 # -----------------------------
 FROM ${REPOSITORY}/ncigdc/amzn2023-builder:${BUILDER_TAG} AS builder
 
 ARG VERSION
 
-RUN dnf install -y \
+RUN dnf -y install \
     git \
     wget \
     tar \
@@ -19,12 +19,10 @@ RUN dnf install -y \
     ca-certificates \
     && dnf clean all
 
-# mirna code (cwl branch)
 RUN mkdir -p /out/usr \
  && git clone -b cwl https://github.com/NCI-GDC/mirna.git /out/usr/mirna \
  && rm -rf /out/usr/mirna/.git
 
-# hg38 seed files (download to a neutral location; runtime will import into DB)
 RUN set -eux; \
   mkdir -p /out/seed/hg38; \
   cd /out/seed/hg38; \
@@ -61,7 +59,6 @@ RUN set -eux; \
   mv rmsk.txt rmsk.tsv; \
   mv trackDb.txt trackDb.tsv
 
-# mirbase v21 seed files (same content/processing as legacy Dockerfile)
 RUN set -eux; \
   mkdir -p /out/seed/mirbase; \
   cd /out/seed/mirbase; \
@@ -101,53 +98,53 @@ RUN set -eux; \
     wget -q ${base}/database_files/$f; \
   done; \
   gunzip -f *.gz; \
-  # rename .txt -> .tsv
   for f in *.txt; do mv "$f" "${f%.txt}.tsv"; done; \
-  # truncate mirna_read_count.tsv to 4 columns (legacy behavior)
   awk 'BEGIN{FS=OFS="\t"}{print $1,$2,$3,$4}' mirna_read_count.tsv > mirna_read_count.tsv.trunc; \
   mv mirna_read_count.tsv.trunc mirna_read_count.tsv
 
 # -----------------------------
-# Runtime (amzn2023 + dnf): install deps, configure users, bake DBs, shutdown
+# Runtime (amzn2023 + dnf)
 # -----------------------------
 FROM ${REPOSITORY}/ncigdc/amzn2023:${BUILDER_TAG}
 
 ARG VERSION
 
-# Keep the legacy ENV keys/values (note: the original used an invalid ENV name "mirna-profiler")
 ENV mirna_profiler=0.2.8gdc
 ENV mirna_userid=33
 ENV mirna_user=ubuntu
 ENV mirna_groupid=33
 ENV mirna_group=ubuntu
 
-# Install runtime deps (MySQL 5.7 not available on AL2023; use MariaDB-compatible stack)
+# Install runtime deps with fallbacks for AL2023 repo differences
 RUN set -eux; \
-  dnf install -y \
+  dnf -y install \
     git \
     wget \
     sudo \
-    vim-enhanced \
     perl \
     perl-DBI \
     perl-DBD-MySQL \
-    mariadb105 \
-    mariadb105-server \
-    mariadb105-client \
     shadow-utils \
     findutils \
     gzip \
     tar \
     ca-certificates \
-    && (dnf install -y R || dnf install -y R-core || true) \
-    && dnf clean all
+  ; \
+  # vim package varies by repo
+  (dnf -y install vim-enhanced || dnf -y install vim || true); \
+  # MariaDB packages vary: try mariadb105*, then fallback to mariadb*
+  (dnf -y install mariadb105 mariadb105-server mariadb105-client \
+    || dnf -y install mariadb mariadb-server mariadb-client \
+    || dnf -y install mariadb-server mariadb) \
+  ; \
+  # R is optional; keep behavior similar to original, but don't fail build if repos don't have it
+  (dnf -y install R || dnf -y install R-core || true); \
+  dnf clean all
 
-# Copy mirna repo and seed files from builder
 COPY --from=builder /out/usr/mirna /usr/mirna
 COPY --from=builder /out/seed/hg38 /opt/seed/hg38
 COPY --from=builder /out/seed/mirbase /opt/seed/mirbase
 
-# Create group/user (same intent as legacy Dockerfile, but fixed/idempotent)
 RUN set -eux; \
   if ! getent group "${mirna_groupid}" >/dev/null; then \
     groupadd -g "${mirna_groupid}" "${mirna_group}"; \
@@ -164,7 +161,6 @@ RUN set -eux; \
   usermod -aG wheel "${mirna_user}"; \
   echo "${mirna_user} ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/${mirna_user}"; \
   chmod 0440 "/etc/sudoers.d/${mirna_user}"; \
-  \
   if ! getent group 1000 >/dev/null; then groupadd -g 1000 default; fi; \
   if ! getent passwd 1000 >/dev/null; then \
     useradd -m -u 1000 -g 1000 -s /bin/bash default; \
@@ -174,77 +170,47 @@ RUN set -eux; \
     chmod 0440 /etc/sudoers.d/default; \
   fi
 
-# Legacy config lines
 RUN set -eux; \
   echo -e "hg38\tlocalhost\troot\t" >> /usr/mirna/config/db_connections.cfg; \
   echo -e "mirbase\tlocalhost\troot\t" >> /usr/mirna/config/db_connections.cfg; \
   chown -R "${mirna_user}.${mirna_group}" /usr/mirna
 
-# Bake hg38 + mirbase into the image (same effect as legacy: DB exists at build end)
 RUN set -eux; \
   mkdir -p /var/run/mysqld; \
   chown -R mysql:mysql /var/run/mysqld; \
-  \
-  # allow LOAD DATA / imports by disabling secure-file-priv
+  # disable secure-file-priv (path varies)
   if [ -f /etc/my.cnf.d/mariadb-server.cnf ]; then \
     echo 'secure-file-priv=""' >> /etc/my.cnf.d/mariadb-server.cnf; \
+  elif [ -f /etc/my.cnf.d/server.cnf ]; then \
+    echo 'secure-file-priv=""' >> /etc/my.cnf.d/server.cnf; \
   else \
     echo 'secure-file-priv=""' >> /etc/my.cnf; \
   fi; \
-  \
   mariadbd --user=mysql --datadir=/var/lib/mysql \
            --socket=/var/run/mysqld/mysqld.sock \
            --pid-file=/var/run/mysqld/mysqld.pid \
            --bind-address=127.0.0.1 --daemonize; \
   mysqladmin --protocol=socket --socket=/var/run/mysqld/mysqld.sock ping --silent --wait=30; \
   \
-  # hg38
   mysql --protocol=socket --socket=/var/run/mysqld/mysqld.sock -e "create database hg38"; \
   cd /opt/seed/hg38; \
-  mysql --protocol=socket --socket=/var/run/mysqld/mysqld.sock --user=root --database=hg38 < kgXref.sql; \
-  mysql --protocol=socket --socket=/var/run/mysqld/mysqld.sock --user=root --database=hg38 < knownGene.sql; \
-  mysql --protocol=socket --socket=/var/run/mysqld/mysqld.sock --user=root --database=hg38 < refGene.sql; \
-  mysql --protocol=socket --socket=/var/run/mysqld/mysqld.sock --user=root --database=hg38 < rmsk.sql; \
+  cat kgXref.sql     | mysql --protocol=socket --socket=/var/run/mysqld/mysqld.sock --user=root --database=hg38; \
+  cat knownGene.sql  | mysql --protocol=socket --socket=/var/run/mysqld/mysqld.sock --user=root --database=hg38; \
+  cat refGene.sql    | mysql --protocol=socket --socket=/var/run/mysqld/mysqld.sock --user=root --database=hg38; \
+  cat rmsk.sql       | mysql --protocol=socket --socket=/var/run/mysqld/mysqld.sock --user=root --database=hg38; \
   mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root hg38 kgXref.tsv; \
   mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root hg38 knownGene.tsv; \
   mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root hg38 refGene.tsv; \
   mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root hg38 rmsk.tsv; \
   \
-  # mirbase
   mysql --protocol=socket --socket=/var/run/mysqld/mysqld.sock -e "create database mirbase"; \
   cd /opt/seed/mirbase; \
-  mysql --protocol=socket --socket=/var/run/mysqld/mysqld.sock --user=root --database=mirbase < tables.sql; \
-  mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root mirbase confidence_score.tsv; \
-  mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root mirbase confidence.tsv; \
-  mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root mirbase dead_mirna.tsv; \
-  mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root mirbase experiment_pre_read.tsv; \
-  mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root mirbase experiment.tsv; \
-  mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root mirbase literature_references.tsv; \
-  mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root mirbase mature_pre_read.tsv; \
-  mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root mirbase mature_read_count_by_experiment.tsv; \
-  mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root mirbase mature_read_count.tsv; \
-  mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root mirbase mirna_2_prefam.tsv; \
-  mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root mirbase mirna2wikipedia.tsv; \
-  mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root mirbase mirna_chromosome_build.tsv; \
-  mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root mirbase mirna_context.tsv; \
-  mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root mirbase mirna_database_links.tsv; \
-  mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root mirbase mirna_mature.tsv; \
-  mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root mirbase mirna_prefam.tsv; \
-  mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root mirbase mirna_pre_mature.tsv; \
-  mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root mirbase mirna_pre_read.tsv; \
-  mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root mirbase mirna_read_count_by_experiment.tsv; \
-  mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root mirbase mirna_read_count.tsv; \
-  mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root mirbase mirna_read_experiment_count.tsv; \
-  mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root mirbase mirna_read.tsv; \
-  mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root mirbase mirna_species.tsv; \
-  mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root mirbase mirna_target_links.tsv; \
-  mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root mirbase mirna_target_url.tsv; \
-  mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root mirbase mirna.tsv; \
-  mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root mirbase wikipedia.tsv; \
+  cat tables.sql | mysql --protocol=socket --socket=/var/run/mysqld/mysqld.sock --user=root --database=mirbase; \
+  for t in *.tsv; do \
+    mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root mirbase "$t"; \
+  done; \
   \
-  # cleanup like legacy (seed files not needed at runtime)
   rm -rf /opt/seed; \
-  \
   mysqladmin --protocol=socket --socket=/var/run/mysqld/mysqld.sock shutdown; \
   cd /
 
