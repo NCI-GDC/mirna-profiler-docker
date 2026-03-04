@@ -1,7 +1,7 @@
 ARG REPOSITORY=docker.osdc.io
 ARG BUILDER_TAG=3.1.0
 
-# Proxy args (pass from CI)
+# Proxy args (pass from CI via build.sh)
 ARG HTTP_PROXY
 ARG HTTPS_PROXY
 ARG NO_PROXY
@@ -10,7 +10,7 @@ ARG https_proxy
 ARG no_proxy
 
 # -----------------------------
-# Builder (amzn2023-builder + dnf): fetch mirna repo + seed files
+# Builder (amzn2023-builder + dnf): fetch mirna source + seed files
 # -----------------------------
 FROM ${REPOSITORY}/ncigdc/amzn2023-builder:${BUILDER_TAG} AS builder
 
@@ -43,17 +43,19 @@ RUN set -eux; \
   dnf clean all
 
 # --- MIRNA SOURCE (NO GIT) ---
-# Same repo, same branch, but fetched as a tarball to avoid git auth prompts.
-# (GitHub tarball endpoints)
-ARG MIRNA_REF=cwl
+# mirna-mirror uses master
+ARG MIRNA_REF=master
 RUN set -eux; \
   mkdir -p /out/usr; \
-  wget -O /tmp/mirna.tar.gz "https://codeload.github.com/NCI-GDC/mirna-mirror/tar.gz/refs/heads/${MIRNA_REF}"; \
+  (wget -O /tmp/mirna.tar.gz "https://codeload.github.com/NCI-GDC/mirna-mirror/tar.gz/${MIRNA_REF}" \
+   || wget -O /tmp/mirna.tar.gz "https://github.com/NCI-GDC/mirna-mirror/archive/refs/heads/${MIRNA_REF}.tar.gz"); \
   tar -xzf /tmp/mirna.tar.gz -C /out/usr; \
   rm -f /tmp/mirna.tar.gz; \
-  mv "/out/usr/mirna-mirror-${MIRNA_REF}" /out/usr/mirna
+  srcdir="$(find /out/usr -maxdepth 1 -type d -name 'mirna-mirror-*' | head -n 1)"; \
+  test -n "${srcdir}"; \
+  mv "${srcdir}" /out/usr/mirna
 
-# hg38 seed files
+# hg38 seed files (same set + same renames as legacy Dockerfile)
 RUN set -eux; \
   mkdir -p /out/seed/hg38; \
   cd /out/seed/hg38; \
@@ -90,7 +92,7 @@ RUN set -eux; \
   mv rmsk.txt rmsk.tsv; \
   mv trackDb.txt trackDb.tsv
 
-# mirbase v21 seed files
+# mirbase v21 seed files (same processing as legacy Dockerfile)
 RUN set -eux; \
   mkdir -p /out/seed/mirbase; \
   cd /out/seed/mirbase; \
@@ -136,7 +138,7 @@ RUN set -eux; \
 
 
 # -----------------------------
-# Runtime (amzn2023 + dnf): install deps, configure users, bake DBs
+# Runtime (amzn2023 + dnf): install deps, configure users, bake DBs, shutdown
 # -----------------------------
 FROM ${REPOSITORY}/ncigdc/amzn2023:${BUILDER_TAG}
 
@@ -163,9 +165,10 @@ ENV mirna_groupid=33
 ENV mirna_group=ubuntu
 
 RUN set -eux; \
-  dnf repolist; \
+  dnf repolist || true; \
   dnf -y makecache --refresh
 
+# Core deps (closest equivalents)
 RUN set -eux; \
   dnf -y install \
     wget \
@@ -178,14 +181,22 @@ RUN set -eux; \
     ca-certificates; \
   dnf clean all
 
+# Optional / varying names across images
 RUN set -eux; \
   (dnf -y install findutils || true); \
-  (dnf -y install vim-enhanced || dnf -y install vim || dnf -y install vim-minimal || true); \
-  (dnf -y install perl-DBD-MySQL || dnf -y install perl-DBD-MariaDB || true); \
-  (dnf -y install R || dnf -y install R-core || true); \
+  (dnf -y install vim-enhanced \
+    || dnf -y install vim \
+    || dnf -y install vim-minimal \
+    || true); \
+  (dnf -y install perl-DBD-MySQL \
+    || dnf -y install perl-DBD-MariaDB \
+    || true); \
+  (dnf -y install R \
+    || dnf -y install R-core \
+    || true); \
   dnf clean all || true
 
-# DB server/client (MANDATORY)
+# DB server/client (required to mirror legacy behavior of baking DBs into image)
 RUN set -eux; \
   if dnf -y install mariadb-server mariadb mariadb-client; then \
     echo "Installed mariadb-server"; \
@@ -199,10 +210,12 @@ RUN set -eux; \
   fi; \
   dnf clean all
 
+# Copy mirna + seed data from builder
 COPY --from=builder /out/usr/mirna /usr/mirna
 COPY --from=builder /out/seed/hg38 /opt/seed/hg38
 COPY --from=builder /out/seed/mirbase /opt/seed/mirbase
 
+# User/group setup (mirrors legacy intent)
 RUN set -eux; \
   if ! getent group "${mirna_groupid}" >/dev/null; then \
     groupadd -g "${mirna_groupid}" "${mirna_group}"; \
@@ -219,6 +232,7 @@ RUN set -eux; \
   usermod -aG wheel "${mirna_user}"; \
   echo "${mirna_user} ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/${mirna_user}"; \
   chmod 0440 "/etc/sudoers.d/${mirna_user}"; \
+  \
   if ! getent group 1000 >/dev/null; then groupadd -g 1000 default; fi; \
   if ! getent passwd 1000 >/dev/null; then \
     useradd -m -u 1000 -g 1000 -s /bin/bash default; \
@@ -228,17 +242,22 @@ RUN set -eux; \
     chmod 0440 /etc/sudoers.d/default; \
   fi
 
+# Legacy config lines + ownership
 RUN set -eux; \
-  echo -e "hg38\tlocalhost\troot\t" >> /usr/mirna/config/db_connections.cfg; \
-  echo -e "mirbase\tlocalhost\troot\t" >> /usr/mirna/config/db_connections.cfg; \
+  printf "hg38\tlocalhost\troot\t\n" >> /usr/mirna/config/db_connections.cfg; \
+  printf "mirbase\tlocalhost\troot\t\n" >> /usr/mirna/config/db_connections.cfg; \
   chown -R "${mirna_user}.${mirna_group}" /usr/mirna
 
+# Bake hg38 + mirbase into /var/lib/mysql during build, then shutdown (legacy behavior)
 RUN set -eux; \
   if command -v mariadbd >/dev/null 2>&1; then DB_DAEMON="mariadbd"; \
   elif command -v mysqld >/dev/null 2>&1; then DB_DAEMON="mysqld"; \
   else echo "ERROR: DB daemon not found after install" >&2; exit 1; fi; \
+  \
   mkdir -p /var/run/mysqld; \
   chown -R mysql:mysql /var/run/mysqld; \
+  \
+  # best-effort equivalent to: echo 'secure-file-priv=""' >> mysqld cnf
   if [ -f /etc/my.cnf.d/mariadb-server.cnf ]; then \
     echo 'secure-file-priv=""' >> /etc/my.cnf.d/mariadb-server.cnf; \
   elif [ -f /etc/my.cnf.d/server.cnf ]; then \
@@ -246,11 +265,14 @@ RUN set -eux; \
   else \
     echo 'secure-file-priv=""' >> /etc/my.cnf; \
   fi; \
+  \
   $DB_DAEMON --user=mysql --datadir=/var/lib/mysql \
     --socket=/var/run/mysqld/mysqld.sock \
     --pid-file=/var/run/mysqld/mysqld.pid \
     --bind-address=127.0.0.1 --daemonize; \
   mysqladmin --protocol=socket --socket=/var/run/mysqld/mysqld.sock ping --silent --wait=60; \
+  \
+  # hg38
   mysql --protocol=socket --socket=/var/run/mysqld/mysqld.sock -e "create database hg38"; \
   cd /opt/seed/hg38; \
   cat kgXref.sql    | mysql --protocol=socket --socket=/var/run/mysqld/mysqld.sock --user=root --database=hg38; \
@@ -261,12 +283,15 @@ RUN set -eux; \
   mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root hg38 knownGene.tsv; \
   mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root hg38 refGene.tsv; \
   mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root hg38 rmsk.tsv; \
+  \
+  # mirbase
   mysql --protocol=socket --socket=/var/run/mysqld/mysqld.sock -e "create database mirbase"; \
   cd /opt/seed/mirbase; \
   cat tables.sql | mysql --protocol=socket --socket=/var/run/mysqld/mysqld.sock --user=root --database=mirbase; \
   for t in *.tsv; do \
     mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root mirbase "$t"; \
   done; \
+  \
   rm -rf /opt/seed; \
   mysqladmin --protocol=socket --socket=/var/run/mysqld/mysqld.sock shutdown; \
   cd /
