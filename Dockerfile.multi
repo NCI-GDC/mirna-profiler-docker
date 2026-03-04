@@ -10,7 +10,7 @@ ARG https_proxy
 ARG no_proxy
 
 # -----------------------------
-# Builder (download/prepare seed data + stage mirna source)
+# Builder (stage mirna source + download seed data)
 # -----------------------------
 FROM ${REPOSITORY}/ncigdc/amzn2023-builder:${BUILDER_TAG} AS builder
 
@@ -44,10 +44,9 @@ RUN set -eux; \
 
 # --- MIRNA SOURCE (FROM BUILD CONTEXT) ---
 # IMPORTANT:
-# Your build.sh uses the VERSION directory (e.g. 1.0/) as the build context (the ".").
+# build.sh uses the VERSION directory (e.g. 1.0/) as the build context (".").
 # So you MUST vendor the mirna source into:
 #   1.0/mirna/        (relative path inside build context: mirna/)
-# This avoids GitHub access during docker build.
 COPY mirna /out/usr/mirna
 
 # hg38 seed files
@@ -87,14 +86,15 @@ RUN set -eux; \
   mv rmsk.txt rmsk.tsv; \
   mv trackDb.txt trackDb.tsv
 
-# mirbase v21 seed files
+# mirbase v21 seed files (HTTPS + timeouts/retries to avoid FTP hangs)
 RUN set -eux; \
   mkdir -p /out/seed/mirbase; \
   cd /out/seed/mirbase; \
-  base="ftp://mirbase.org/pub/mirbase/21"; \
-  wget -q ${base}/0_THIS_IS_RELEASE_21 || true; \
-  wget -q ${base}/README || true; \
-  wget -q ${base}/database_files/tables.sql; \
+  base="https://mirbase.org/ftp/pub/mirbase/21"; \
+  wget_opts="--quiet --tries=10 --waitretry=2 --timeout=30 --read-timeout=30 --dns-timeout=30 --retry-connrefused"; \
+  wget ${wget_opts} "${base}/0_THIS_IS_RELEASE_21" || true; \
+  wget ${wget_opts} "${base}/README" || true; \
+  wget ${wget_opts} "${base}/database_files/tables.sql"; \
   for f in \
     confidence_score.txt.gz \
     confidence.txt.gz \
@@ -124,7 +124,7 @@ RUN set -eux; \
     mirna.txt.gz \
     wikipedia.txt.gz \
   ; do \
-    wget -q ${base}/database_files/$f; \
+    wget ${wget_opts} "${base}/database_files/${f}"; \
   done; \
   gunzip -f *.gz; \
   for f in *.txt; do mv "$f" "${f%.txt}.tsv"; done; \
@@ -132,7 +132,7 @@ RUN set -eux; \
   mv mirna_read_count.tsv.trunc mirna_read_count.tsv
 
 # -----------------------------
-# Runtime (install deps, init DBs, import seed data, shutdown DB)
+# Runtime (install deps, init DBs, import seed data, shutdown)
 # -----------------------------
 FROM ${REPOSITORY}/ncigdc/amzn2023:${BUILDER_TAG}
 
@@ -152,6 +152,8 @@ ENV http_proxy=${http_proxy}
 ENV https_proxy=${https_proxy}
 ENV no_proxy=${no_proxy}
 
+# Keep both env names (old Dockerfile used a hyphenated key)
+ENV mirna-profiler=0.2.8gdc
 ENV mirna_profiler=0.2.8gdc
 ENV mirna_userid=33
 ENV mirna_user=ubuntu
@@ -174,7 +176,7 @@ RUN set -eux; \
     ca-certificates; \
   dnf clean all
 
-# Optional / varying names across images
+# Optional tools / varying names
 RUN set -eux; \
   (dnf -y install findutils || true); \
   (dnf -y install vim-enhanced || dnf -y install vim || dnf -y install vim-minimal || true); \
@@ -182,22 +184,27 @@ RUN set -eux; \
   (dnf -y install R || dnf -y install R-core || true); \
   dnf clean all || true
 
-# ---- IMPORTANT FIX ----
-# On AL2023, server is typically "mariadb105-server" and the client utilities are in "mariadb105".
-# Do NOT try to install non-existent "*-client" packages on AL2023 images.
+# Install DB server + ensure client tools exist (avoid non-existent "*-client" pkgs on AL2023)
 RUN set -eux; \
   if dnf -y install mariadb105-server; then \
     echo "Installed mariadb105-server"; \
   elif dnf -y install mariadb-server; then \
     echo "Installed mariadb-server"; \
-  elif dnf -y install community-mysql-server; then \
-    echo "Installed community-mysql-server"; \
   else \
-    echo "ERROR: Could not install a DB server package (mariadb105-server/mariadb-server/community-mysql-server) from enabled dnf repos." >&2; \
+    echo "ERROR: No MariaDB/MySQL server package available in enabled repos." >&2; \
+    echo "Available packages (filtered):" >&2; \
+    (dnf -q list available 'mariadb*' 'mysql*' || true) >&2; \
     exit 1; \
   fi; \
-  # Try to ensure mysql/mariadb client tools exist (mysql, mysqladmin, mysqlimport). On AL2023 this is usually mariadb105.
-  (dnf -y install mariadb105 || dnf -y install mariadb || true); \
+  if dnf -y install mariadb105; then \
+    echo "Installed mariadb105 client tools"; \
+  elif dnf -y install mariadb; then \
+    echo "Installed mariadb client tools"; \
+  else \
+    echo "ERROR: Could not install client tools package (mariadb105/mariadb)." >&2; \
+    exit 1; \
+  fi; \
+  command -v mysql; command -v mysqladmin; command -v mysqlimport; \
   dnf clean all
 
 # Bring in staged mirna source + seed data
