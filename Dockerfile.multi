@@ -44,7 +44,7 @@ RUN set -eux; \
 # --- MIRNA SOURCE (FROM THIS REPO) ---
 # Expect mirna source vendored into build context at: vendor/mirna/
 # This avoids GitHub entirely.
-COPY vendor/mirna /out/usr/mirna
+COPY mirna /out/usr/mirna
 
 # hg38 seed files
 RUN set -eux; \
