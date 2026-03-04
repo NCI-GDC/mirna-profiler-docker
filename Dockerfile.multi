@@ -9,7 +9,7 @@ ARG https_proxy
 ARG no_proxy
 
 # -----------------------------
-# Builder: prepare /usr/mirna + seed files
+# Builder
 # -----------------------------
 FROM ${REPOSITORY}/ncigdc/amzn2023-builder:${BUILDER_TAG} AS builder
 
@@ -41,9 +41,9 @@ RUN set -eux; \
     ca-certificates; \
   dnf clean all
 
-# --- MIRNA SOURCE (FROM THIS REPO) ---
-# Expect mirna source vendored into build context at: vendor/mirna/
-# This avoids GitHub entirely.
+# --- MIRNA SOURCE (FROM BUILD CONTEXT) ---
+# NOTE: Because build context is the version dir (e.g. 1.0/), this must exist at:
+#   1.0/mirna/  (relative path: mirna/)
 COPY mirna /out/usr/mirna
 
 # hg38 seed files
@@ -116,7 +116,6 @@ RUN set -eux; \
     mirna_read.txt.gz \
     mirna_species.txt.gz \
     mirna_target_links.txt.gz \
-    mirna_target_links.txt.gz \
     mirna_target_url.txt.gz \
     mirna.txt.gz \
     wikipedia.txt.gz \
@@ -128,8 +127,9 @@ RUN set -eux; \
   awk 'BEGIN{FS=OFS="\t"}{print $1,$2,$3,$4}' mirna_read_count.tsv > mirna_read_count.tsv.trunc; \
   mv mirna_read_count.tsv.trunc mirna_read_count.tsv
 
+
 # -----------------------------
-# Runtime: install deps + bake DBs into image like legacy
+# Runtime
 # -----------------------------
 FROM ${REPOSITORY}/ncigdc/amzn2023:${BUILDER_TAG}
 
