@@ -1,0 +1,15 @@
+{
+    "template": "git@github.com:NCI-GDC/bio-software-template.git",
+    "commit": "7a4a06c3072e31fe76e22beacb12991004410dba",
+    "context": {
+      "cookiecutter": {
+        "repository_name": "mirna-profiler-docker",
+        "software_name": "mirna-profiler",
+        "software_version": "1.0",
+        "commit": "7a4a06c3072e31fe76e22beacb12991004410dba",
+        "_template": "git@github.com:NCI-GDC/bio-software-template.git"
+      }
+    },
+    "directory": null,
+    "checkout": null
+  }

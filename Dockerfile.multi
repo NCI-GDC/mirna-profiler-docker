@@ -1,0 +1,277 @@
+ARG REPOSITORY=docker.osdc.io
+ARG BUILDER_TAG=3.1.0
+
+# Proxy args (build.sh passes both upper/lower)
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+ARG http_proxy
+ARG https_proxy
+ARG no_proxy
+
+# -----------------------------
+# Builder stage: fetch seed data + stage mirna source
+# -----------------------------
+FROM ${REPOSITORY}/ncigdc/amzn2023-builder:${BUILDER_TAG} AS builder
+
+ARG VERSION
+
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+ARG http_proxy
+ARG https_proxy
+ARG no_proxy
+
+ENV HTTP_PROXY=${HTTP_PROXY}
+ENV HTTPS_PROXY=${HTTPS_PROXY}
+ENV NO_PROXY=${NO_PROXY}
+ENV http_proxy=${http_proxy}
+ENV https_proxy=${https_proxy}
+ENV no_proxy=${no_proxy}
+
+RUN set -eux; \
+  dnf -y makecache --refresh; \
+  dnf -y install \
+    wget \
+    tar \
+    gzip \
+    bzip2 \
+    xz \
+    findutils \
+    ca-certificates; \
+  dnf clean all
+
+# --- MIRNA SOURCE (FROM BUILD CONTEXT) ---
+# Build context is the version dir (e.g. 1.0/), so this must exist at:
+#   1.0/mirna/
+COPY mirna /out/usr/mirna
+
+# hg38 seed files (same sources as original Dockerfile)
+RUN set -eux; \
+  mkdir -p /out/seed/hg38; \
+  cd /out/seed/hg38; \
+  base="http://hgdownload.cse.ucsc.edu/goldenpath/hg38/database"; \
+  wget -q "${base}/chromInfo.sql"; \
+  wget -q "${base}/chromInfo.txt.gz"; \
+  wget -q "${base}/gap.sql"; \
+  wget -q "${base}/gap.txt.gz"; \
+  wget -q "${base}/gold.sql"; \
+  wget -q "${base}/gold.txt.gz"; \
+  wget -q "${base}/grp.sql"; \
+  wget -q "${base}/grp.txt.gz"; \
+  wget -q "${base}/hgFindSpec.sql"; \
+  wget -q "${base}/hgFindSpec.txt.gz"; \
+  wget -q "${base}/kgXref.sql"; \
+  wget -q "${base}/kgXref.txt.gz"; \
+  wget -q "${base}/knownGene.sql"; \
+  wget -q "${base}/knownGene.txt.gz"; \
+  wget -q "${base}/refGene.sql"; \
+  wget -q "${base}/refGene.txt.gz"; \
+  wget -q "${base}/rmsk.sql"; \
+  wget -q "${base}/rmsk.txt.gz"; \
+  wget -q "${base}/trackDb.sql"; \
+  wget -q "${base}/trackDb.txt.gz"; \
+  gunzip -f *.gz; \
+  mv chromInfo.txt chromInfo.tsv; \
+  mv gap.txt gap.tsv; \
+  mv gold.txt gold.tsv; \
+  mv grp.txt grp.tsv; \
+  mv hgFindSpec.txt hgFindSpec.tsv; \
+  mv kgXref.txt kgXref.tsv; \
+  mv knownGene.txt knownGene.tsv; \
+  mv refGene.txt refGene.tsv; \
+  mv rmsk.txt rmsk.tsv; \
+  mv trackDb.txt trackDb.tsv
+
+# miRBase seed files:
+# Use CURRENT (release 22.1 currently) database_files over HTTPS.
+# If HTTPS CONNECT is blocked by proxy, fall back to HTTP.
+RUN set -eux; \
+  mkdir -p /out/seed/mirbase; \
+  cd /out/seed/mirbase; \
+  wget_opts="--tries=10 --waitretry=2 --timeout=60 --read-timeout=60 --dns-timeout=60 --retry-connrefused"; \
+  base_https="https://www.mirbase.org/download/CURRENT/database_files"; \
+  base_http="http://www.mirbase.org/download/CURRENT/database_files"; \
+  \
+  fetch() { \
+    f="$1"; \
+    (wget ${wget_opts} -q "${base_https}/${f}" && echo "OK ${f} (https)") \
+    || (wget ${wget_opts} -q "${base_http}/${f}" && echo "OK ${f} (http)"); \
+  }; \
+  \
+  fetch "tables.sql"; \
+  for f in \
+    confidence_score.txt.gz \
+    confidence.txt.gz \
+    dead_mirna.txt.gz \
+    experiment_pre_read.txt.gz \
+    experiment.txt.gz \
+    literature_references.txt.gz \
+    mature_pre_read.txt.gz \
+    mature_read_count_by_experiment.txt.gz \
+    mature_read_count.txt.gz \
+    mirna_2_prefam.txt.gz \
+    mirna2wikipedia.txt.gz \
+    mirna_chromosome_build.txt.gz \
+    mirna_context.txt.gz \
+    mirna_database_links.txt.gz \
+    mirna_mature.txt.gz \
+    mirna_prefam.txt.gz \
+    mirna_pre_mature.txt.gz \
+    mirna_pre_read.txt.gz \
+    mirna_read_count_by_experiment.txt.gz \
+    mirna_read_count.txt.gz \
+    mirna_read_experiment_count.txt.gz \
+    mirna_read.txt.gz \
+    mirna_species.txt.gz \
+    mirna_target_links.txt.gz \
+    mirna_target_url.txt.gz \
+    mirna.txt.gz \
+    wikipedia.txt.gz \
+  ; do \
+    fetch "${f}"; \
+  done; \
+  gunzip -f *.gz; \
+  for f in *.txt; do mv "$f" "${f%.txt}.tsv"; done; \
+  awk 'BEGIN{FS=OFS="\t"}{print $1,$2,$3,$4}' mirna_read_count.tsv > mirna_read_count.tsv.trunc; \
+  mv mirna_read_count.tsv.trunc mirna_read_count.tsv
+
+# -----------------------------
+# Runtime stage
+# -----------------------------
+FROM ${REPOSITORY}/ncigdc/amzn2023:${BUILDER_TAG}
+
+ARG VERSION
+
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+ARG http_proxy
+ARG https_proxy
+ARG no_proxy
+
+ENV HTTP_PROXY=${HTTP_PROXY}
+ENV HTTPS_PROXY=${HTTPS_PROXY}
+ENV NO_PROXY=${NO_PROXY}
+ENV http_proxy=${http_proxy}
+ENV https_proxy=${https_proxy}
+ENV no_proxy=${no_proxy}
+
+ENV mirna_profiler=0.2.8gdc
+ENV mirna_userid=33
+ENV mirna_user=ubuntu
+ENV mirna_groupid=33
+ENV mirna_group=ubuntu
+
+RUN set -eux; \
+  dnf -y makecache --refresh; \
+  dnf -y install \
+    wget \
+    sudo \
+    vim-minimal \
+    perl \
+    perl-DBI \
+    shadow-utils \
+    findutils \
+    gzip \
+    tar \
+    ca-certificates; \
+  dnf clean all
+
+# Perl DB driver (name can vary by repo image)
+RUN set -eux; \
+  (dnf -y install perl-DBD-MySQL || dnf -y install perl-DBD-MariaDB); \
+  dnf clean all
+
+# R is optional (some base images/repos may not carry it)
+RUN set -eux; \
+  (dnf -y install R || dnf -y install R-core || true); \
+  dnf clean all || true
+
+# MySQL/MariaDB server on AL2023:
+# - server package: mariadb105-server
+# - client/tools library: mariadb105
+RUN set -eux; \
+  dnf -y install mariadb105-server mariadb105; \
+  dnf clean all
+
+COPY --from=builder /out/usr/mirna /usr/mirna
+COPY --from=builder /out/seed/hg38 /opt/seed/hg38
+COPY --from=builder /out/seed/mirbase /opt/seed/mirbase
+
+# Users/groups to match original intent
+RUN set -eux; \
+  if ! getent group "${mirna_groupid}" >/dev/null; then \
+    groupadd -g "${mirna_groupid}" "${mirna_group}"; \
+  else \
+    existing="$(getent group "${mirna_groupid}" | cut -d: -f1)"; \
+    if [ "${existing}" != "${mirna_group}" ]; then groupmod -n "${mirna_group}" "${existing}"; fi; \
+  fi; \
+  if ! getent passwd "${mirna_userid}" >/dev/null; then \
+    useradd -m -u "${mirna_userid}" -g "${mirna_groupid}" -s /bin/bash "${mirna_user}"; \
+  else \
+    existing="$(getent passwd "${mirna_userid}" | cut -d: -f1)"; \
+    if [ "${existing}" != "${mirna_user}" ]; then usermod -l "${mirna_user}" "${existing}"; fi; \
+  fi; \
+  usermod -aG wheel "${mirna_user}"; \
+  echo "${mirna_user} ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/${mirna_user}"; \
+  chmod 0440 "/etc/sudoers.d/${mirna_user}"; \
+  if ! getent group 1000 >/dev/null; then groupadd -g 1000 default; fi; \
+  if ! getent passwd 1000 >/dev/null; then \
+    useradd -m -u 1000 -g 1000 -s /bin/bash default; \
+    usermod -aG wheel default; \
+    usermod -aG "${mirna_group}" default; \
+    echo "default ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/default; \
+    chmod 0440 /etc/sudoers.d/default; \
+  fi
+
+# Mirror original config lines
+RUN set -eux; \
+  printf "hg38\tlocalhost\troot\t\n" >> /usr/mirna/config/db_connections.cfg; \
+  printf "mirbase\tlocalhost\troot\t\n" >> /usr/mirna/config/db_connections.cfg; \
+  chown -R "${mirna_user}.${mirna_group}" /usr/mirna
+
+# Initialize DBs during build, import, then shutdown (same lifecycle as original)
+RUN set -eux; \
+  mkdir -p /var/run/mysqld; \
+  chown -R mysql:mysql /var/run/mysqld; \
+  \
+  # allow local file import
+  if [ -f /etc/my.cnf.d/mariadb-server.cnf ]; then \
+    echo 'secure-file-priv=""' >> /etc/my.cnf.d/mariadb-server.cnf; \
+  elif [ -f /etc/my.cnf.d/server.cnf ]; then \
+    echo 'secure-file-priv=""' >> /etc/my.cnf.d/server.cnf; \
+  else \
+    echo 'secure-file-priv=""' >> /etc/my.cnf; \
+  fi; \
+  \
+  mariadbd --user=mysql --datadir=/var/lib/mysql \
+    --socket=/var/run/mysqld/mysqld.sock \
+    --pid-file=/var/run/mysqld/mysqld.pid \
+    --bind-address=127.0.0.1 --daemonize; \
+  mysqladmin --protocol=socket --socket=/var/run/mysqld/mysqld.sock ping --silent --wait=60; \
+  \
+  mysql --protocol=socket --socket=/var/run/mysqld/mysqld.sock -e "create database hg38"; \
+  cd /opt/seed/hg38; \
+  cat kgXref.sql    | mysql --protocol=socket --socket=/var/run/mysqld/mysqld.sock --user=root --database=hg38; \
+  cat knownGene.sql | mysql --protocol=socket --socket=/var/run/mysqld/mysqld.sock --user=root --database=hg38; \
+  cat refGene.sql   | mysql --protocol=socket --socket=/var/run/mysqld/mysqld.sock --user=root --database=hg38; \
+  cat rmsk.sql      | mysql --protocol=socket --socket=/var/run/mysqld/mysqld.sock --user=root --database=hg38; \
+  mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root hg38 kgXref.tsv; \
+  mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root hg38 knownGene.tsv; \
+  mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root hg38 refGene.tsv; \
+  mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root hg38 rmsk.tsv; \
+  \
+  mysql --protocol=socket --socket=/var/run/mysqld/mysqld.sock -e "create database mirbase"; \
+  cd /opt/seed/mirbase; \
+  cat tables.sql | mysql --protocol=socket --socket=/var/run/mysqld/mysqld.sock --user=root --database=mirbase; \
+  for t in *.tsv; do \
+    mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root mirbase "$t"; \
+  done; \
+  \
+  rm -rf /opt/seed; \
+  mysqladmin --protocol=socket --socket=/var/run/mysqld/mysqld.sock shutdown; \
+  cd /
+
+WORKDIR /usr/mirna
