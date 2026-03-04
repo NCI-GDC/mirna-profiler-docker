@@ -1,4 +1,3 @@
-# Dockerfile.multi
 ARG REPOSITORY=docker.osdc.io
 ARG BUILDER_TAG=3.1.0
 
@@ -10,7 +9,7 @@ ARG https_proxy
 ARG no_proxy
 
 # -----------------------------
-# Builder (stage mirna source + download seed data)
+# Builder: stage downloads seed data + carries vendored mirna source
 # -----------------------------
 FROM ${REPOSITORY}/ncigdc/amzn2023-builder:${BUILDER_TAG} AS builder
 
@@ -44,9 +43,9 @@ RUN set -eux; \
 
 # --- MIRNA SOURCE (FROM BUILD CONTEXT) ---
 # IMPORTANT:
-# build.sh uses the VERSION directory (e.g. 1.0/) as the build context (".").
-# So you MUST vendor the mirna source into:
-#   1.0/mirna/        (relative path inside build context: mirna/)
+# build.sh runs `docker buildx ... .` from inside the version directory (e.g. 1.0/)
+# so this expects the mirna source to exist at:
+#   1.0/mirna/
 COPY mirna /out/usr/mirna
 
 # hg38 seed files
@@ -86,53 +85,38 @@ RUN set -eux; \
   mv rmsk.txt rmsk.tsv; \
   mv trackDb.txt trackDb.tsv
 
-# mirbase v21 seed files (HTTPS + timeouts/retries to avoid FTP hangs)
+# miRBase seed files:
+# Release 21 database_files is effectively FTP-only (often blocked/slow in CI).
+# Use CURRENT database_files over HTTPS and import what exists.
 RUN set -eux; \
   mkdir -p /out/seed/mirbase; \
   cd /out/seed/mirbase; \
-  base="https://mirbase.org/ftp/pub/mirbase/21"; \
+  base="https://www.mirbase.org/download/CURRENT/database_files"; \
   wget_opts="--quiet --tries=10 --waitretry=2 --timeout=30 --read-timeout=30 --dns-timeout=30 --retry-connrefused"; \
-  wget ${wget_opts} "${base}/0_THIS_IS_RELEASE_21" || true; \
-  wget ${wget_opts} "${base}/README" || true; \
-  wget ${wget_opts} "${base}/database_files/tables.sql"; \
+  wget ${wget_opts} "${base}/tables.sql"; \
   for f in \
-    confidence_score.txt.gz \
-    confidence.txt.gz \
-    dead_mirna.txt.gz \
-    experiment_pre_read.txt.gz \
-    experiment.txt.gz \
-    literature_references.txt.gz \
-    mature_pre_read.txt.gz \
-    mature_read_count_by_experiment.txt.gz \
-    mature_read_count.txt.gz \
-    mirna_2_prefam.txt.gz \
-    mirna2wikipedia.txt.gz \
-    mirna_chromosome_build.txt.gz \
-    mirna_context.txt.gz \
-    mirna_database_links.txt.gz \
-    mirna_mature.txt.gz \
-    mirna_prefam.txt.gz \
-    mirna_pre_mature.txt.gz \
-    mirna_pre_read.txt.gz \
-    mirna_read_count_by_experiment.txt.gz \
-    mirna_read_count.txt.gz \
-    mirna_read_experiment_count.txt.gz \
-    mirna_read.txt.gz \
-    mirna_species.txt.gz \
-    mirna_target_links.txt.gz \
-    mirna_target_url.txt.gz \
-    mirna.txt.gz \
-    wikipedia.txt.gz \
+    confidence_score.txt \
+    confidence.txt \
+    dead_mirna.txt \
+    literature_references.txt \
+    mirna_2_prefam.txt \
+    mirna_context.txt \
+    mirna_database_links.txt \
+    mirna_database_url.txt \
+    mirna_literature_references.txt \
+    mirna_mature.txt \
+    mirna_pre_mature.txt \
+    mirna_prefam.txt \
+    mirna_species.txt \
+    mature_database_links.txt \
+    mature_database_url.txt \
   ; do \
-    wget ${wget_opts} "${base}/database_files/${f}"; \
+    wget ${wget_opts} "${base}/${f}"; \
   done; \
-  gunzip -f *.gz; \
-  for f in *.txt; do mv "$f" "${f%.txt}.tsv"; done; \
-  awk 'BEGIN{FS=OFS="\t"}{print $1,$2,$3,$4}' mirna_read_count.tsv > mirna_read_count.tsv.trunc; \
-  mv mirna_read_count.tsv.trunc mirna_read_count.tsv
+  for f in *.txt; do mv "$f" "${f%.txt}.tsv"; done
 
 # -----------------------------
-# Runtime (install deps, init DBs, import seed data, shutdown)
+# Runtime
 # -----------------------------
 FROM ${REPOSITORY}/ncigdc/amzn2023:${BUILDER_TAG}
 
@@ -152,67 +136,56 @@ ENV http_proxy=${http_proxy}
 ENV https_proxy=${https_proxy}
 ENV no_proxy=${no_proxy}
 
-# Keep both env names (old Dockerfile used a hyphenated key)
-ENV mirna-profiler=0.2.8gdc
 ENV mirna_profiler=0.2.8gdc
 ENV mirna_userid=33
 ENV mirna_user=ubuntu
 ENV mirna_groupid=33
 ENV mirna_group=ubuntu
 
+# Base tools
 RUN set -eux; \
-  dnf -y makecache --refresh
-
-# Base tools and perl deps
-RUN set -eux; \
+  dnf -y makecache --refresh; \
   dnf -y install \
     wget \
     sudo \
     perl \
     perl-DBI \
     shadow-utils \
+    findutils \
     gzip \
     tar \
     ca-certificates; \
   dnf clean all
 
-# Optional tools / varying names
+# Optional utilities (don’t fail build if not present)
 RUN set -eux; \
-  (dnf -y install findutils || true); \
   (dnf -y install vim-enhanced || dnf -y install vim || dnf -y install vim-minimal || true); \
   (dnf -y install perl-DBD-MySQL || dnf -y install perl-DBD-MariaDB || true); \
   (dnf -y install R || dnf -y install R-core || true); \
   dnf clean all || true
 
-# Install DB server + ensure client tools exist (avoid non-existent "*-client" pkgs on AL2023)
+# Database server/client (AL2023 commonly provides mariadb105*)
+# Your earlier failures were because you tried package names not present in enabled repos.
 RUN set -eux; \
-  if dnf -y install mariadb105-server; then \
-    echo "Installed mariadb105-server"; \
-  elif dnf -y install mariadb-server; then \
-    echo "Installed mariadb-server"; \
+  dnf -y makecache --refresh; \
+  if dnf -y install mariadb105-server mariadb105; then \
+    echo "Installed mariadb105-server/mariadb105"; \
+  elif dnf -y install mariadb-server mariadb; then \
+    echo "Installed mariadb-server/mariadb"; \
   else \
-    echo "ERROR: No MariaDB/MySQL server package available in enabled repos." >&2; \
-    echo "Available packages (filtered):" >&2; \
-    (dnf -q list available 'mariadb*' 'mysql*' || true) >&2; \
+    echo "ERROR: Could not install any MariaDB/MySQL packages from enabled repos." >&2; \
+    dnf repolist || true; \
     exit 1; \
   fi; \
-  if dnf -y install mariadb105; then \
-    echo "Installed mariadb105 client tools"; \
-  elif dnf -y install mariadb; then \
-    echo "Installed mariadb client tools"; \
-  else \
-    echo "ERROR: Could not install client tools package (mariadb105/mariadb)." >&2; \
-    exit 1; \
-  fi; \
-  command -v mysql; command -v mysqladmin; command -v mysqlimport; \
+  command -v mysql; \
   dnf clean all
 
-# Bring in staged mirna source + seed data
+# Bring in mirna source and seed data
 COPY --from=builder /out/usr/mirna /usr/mirna
 COPY --from=builder /out/seed/hg38 /opt/seed/hg38
 COPY --from=builder /out/seed/mirbase /opt/seed/mirbase
 
-# Users/groups (mirrors old Dockerfile intent)
+# Users/groups and sudoers (same intent as original)
 RUN set -eux; \
   if ! getent group "${mirna_groupid}" >/dev/null; then \
     groupadd -g "${mirna_groupid}" "${mirna_group}"; \
@@ -238,19 +211,20 @@ RUN set -eux; \
     chmod 0440 /etc/sudoers.d/default; \
   fi
 
-# Configure mirna DB connections like original
+# db_connections.cfg + ownership
 RUN set -eux; \
   printf "hg38\tlocalhost\troot\t\n" >> /usr/mirna/config/db_connections.cfg; \
   printf "mirbase\tlocalhost\troot\t\n" >> /usr/mirna/config/db_connections.cfg; \
   chown -R "${mirna_user}.${mirna_group}" /usr/mirna
 
-# Initialize DBs, import seed data, cleanup, shutdown DB (same overall behavior as original)
+# Initialize DBs and import seed data (same pattern as original)
 RUN set -eux; \
   if command -v mariadbd >/dev/null 2>&1; then DB_DAEMON="mariadbd"; \
   elif command -v mysqld >/dev/null 2>&1; then DB_DAEMON="mysqld"; \
   else echo "ERROR: DB daemon not found after install" >&2; exit 1; fi; \
   mkdir -p /var/run/mysqld; \
   chown -R mysql:mysql /var/run/mysqld; \
+  # Allow LOAD DATA LOCAL INFILE style imports
   if [ -f /etc/my.cnf.d/mariadb-server.cnf ]; then \
     echo 'secure-file-priv=""' >> /etc/my.cnf.d/mariadb-server.cnf; \
   elif [ -f /etc/my.cnf.d/server.cnf ]; then \
@@ -263,6 +237,7 @@ RUN set -eux; \
     --pid-file=/var/run/mysqld/mysqld.pid \
     --bind-address=127.0.0.1 --daemonize; \
   mysqladmin --protocol=socket --socket=/var/run/mysqld/mysqld.sock ping --silent --wait=60; \
+  \
   mysql --protocol=socket --socket=/var/run/mysqld/mysqld.sock -e "create database hg38"; \
   cd /opt/seed/hg38; \
   cat kgXref.sql    | mysql --protocol=socket --socket=/var/run/mysqld/mysqld.sock --user=root --database=hg38; \
@@ -273,6 +248,7 @@ RUN set -eux; \
   mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root hg38 knownGene.tsv; \
   mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root hg38 refGene.tsv; \
   mysqlimport --protocol=socket --socket=/var/run/mysqld/mysqld.sock --local --user root hg38 rmsk.tsv; \
+  \
   mysql --protocol=socket --socket=/var/run/mysqld/mysqld.sock -e "create database mirbase"; \
   cd /opt/seed/mirbase; \
   cat tables.sql | mysql --protocol=socket --socket=/var/run/mysqld/mysqld.sock --user=root --database=mirbase; \
