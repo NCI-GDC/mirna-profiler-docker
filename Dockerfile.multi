@@ -1,3 +1,4 @@
+# Dockerfile.multi
 ARG REPOSITORY=docker.osdc.io
 ARG BUILDER_TAG=3.1.0
 
@@ -9,7 +10,7 @@ ARG https_proxy
 ARG no_proxy
 
 # -----------------------------
-# Builder
+# Builder (download/prepare seed data + stage mirna source)
 # -----------------------------
 FROM ${REPOSITORY}/ncigdc/amzn2023-builder:${BUILDER_TAG} AS builder
 
@@ -42,8 +43,11 @@ RUN set -eux; \
   dnf clean all
 
 # --- MIRNA SOURCE (FROM BUILD CONTEXT) ---
-# NOTE: Because build context is the version dir (e.g. 1.0/), this must exist at:
-#   1.0/mirna/  (relative path: mirna/)
+# IMPORTANT:
+# Your build.sh uses the VERSION directory (e.g. 1.0/) as the build context (the ".").
+# So you MUST vendor the mirna source into:
+#   1.0/mirna/        (relative path inside build context: mirna/)
+# This avoids GitHub access during docker build.
 COPY mirna /out/usr/mirna
 
 # hg38 seed files
@@ -127,9 +131,8 @@ RUN set -eux; \
   awk 'BEGIN{FS=OFS="\t"}{print $1,$2,$3,$4}' mirna_read_count.tsv > mirna_read_count.tsv.trunc; \
   mv mirna_read_count.tsv.trunc mirna_read_count.tsv
 
-
 # -----------------------------
-# Runtime
+# Runtime (install deps, init DBs, import seed data, shutdown DB)
 # -----------------------------
 FROM ${REPOSITORY}/ncigdc/amzn2023:${BUILDER_TAG}
 
@@ -156,9 +159,9 @@ ENV mirna_groupid=33
 ENV mirna_group=ubuntu
 
 RUN set -eux; \
-  dnf repolist || true; \
   dnf -y makecache --refresh
 
+# Base tools and perl deps
 RUN set -eux; \
   dnf -y install \
     wget \
@@ -171,6 +174,7 @@ RUN set -eux; \
     ca-certificates; \
   dnf clean all
 
+# Optional / varying names across images
 RUN set -eux; \
   (dnf -y install findutils || true); \
   (dnf -y install vim-enhanced || dnf -y install vim || dnf -y install vim-minimal || true); \
@@ -178,23 +182,30 @@ RUN set -eux; \
   (dnf -y install R || dnf -y install R-core || true); \
   dnf clean all || true
 
+# ---- IMPORTANT FIX ----
+# On AL2023, server is typically "mariadb105-server" and the client utilities are in "mariadb105".
+# Do NOT try to install non-existent "*-client" packages on AL2023 images.
 RUN set -eux; \
-  if dnf -y install mariadb-server mariadb mariadb-client; then \
-    echo "Installed mariadb-server"; \
-  elif dnf -y install mariadb105-server mariadb105 mariadb105-client; then \
+  if dnf -y install mariadb105-server; then \
     echo "Installed mariadb105-server"; \
-  elif dnf -y install community-mysql-server community-mysql; then \
+  elif dnf -y install mariadb-server; then \
+    echo "Installed mariadb-server"; \
+  elif dnf -y install community-mysql-server; then \
     echo "Installed community-mysql-server"; \
   else \
-    echo "ERROR: Could not install any MySQL/MariaDB server packages from enabled dnf repos." >&2; \
+    echo "ERROR: Could not install a DB server package (mariadb105-server/mariadb-server/community-mysql-server) from enabled dnf repos." >&2; \
     exit 1; \
   fi; \
+  # Try to ensure mysql/mariadb client tools exist (mysql, mysqladmin, mysqlimport). On AL2023 this is usually mariadb105.
+  (dnf -y install mariadb105 || dnf -y install mariadb || true); \
   dnf clean all
 
+# Bring in staged mirna source + seed data
 COPY --from=builder /out/usr/mirna /usr/mirna
 COPY --from=builder /out/seed/hg38 /opt/seed/hg38
 COPY --from=builder /out/seed/mirbase /opt/seed/mirbase
 
+# Users/groups (mirrors old Dockerfile intent)
 RUN set -eux; \
   if ! getent group "${mirna_groupid}" >/dev/null; then \
     groupadd -g "${mirna_groupid}" "${mirna_group}"; \
@@ -220,11 +231,13 @@ RUN set -eux; \
     chmod 0440 /etc/sudoers.d/default; \
   fi
 
+# Configure mirna DB connections like original
 RUN set -eux; \
   printf "hg38\tlocalhost\troot\t\n" >> /usr/mirna/config/db_connections.cfg; \
   printf "mirbase\tlocalhost\troot\t\n" >> /usr/mirna/config/db_connections.cfg; \
   chown -R "${mirna_user}.${mirna_group}" /usr/mirna
 
+# Initialize DBs, import seed data, cleanup, shutdown DB (same overall behavior as original)
 RUN set -eux; \
   if command -v mariadbd >/dev/null 2>&1; then DB_DAEMON="mariadbd"; \
   elif command -v mysqld >/dev/null 2>&1; then DB_DAEMON="mysqld"; \
