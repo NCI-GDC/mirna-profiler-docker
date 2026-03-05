@@ -9,7 +9,7 @@ ARG https_proxy
 ARG no_proxy
 
 # -----------------------------
-# Builder: stage 
+# Builder: stage
 # -----------------------------
 FROM ${REPOSITORY}/ncigdc/amzn2023-builder:${BUILDER_TAG} AS builder
 
@@ -34,7 +34,7 @@ RUN set -eux; \
   dnf -y install tar gzip xz findutils ca-certificates; \
   dnf clean all
 
-# ---- MIRNA CODE 
+# ---- MIRNA CODE
 # (build context is 1.0/, so these are relative to 1.0/)
 COPY mirna /out/usr/mirna
 
