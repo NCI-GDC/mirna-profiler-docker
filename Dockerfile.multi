@@ -1,14 +1,5 @@
-# Dockerfile.multi
-#
-# Assumptions (matches your build.sh behavior):
-# - Build context is the VERSION directory, e.g. 1.0/
-# - Therefore these paths exist in context:
-#     mirna/
-#     seed/hg38.tar.gz.part-*
-#     seed/mirbase.tar.gz.part-*
-
 ARG REPOSITORY=docker.osdc.io
-ARG BUILDER_TAG=3.1.0
+ARG BUILDER_TAG=4.3
 
 ARG HTTP_PROXY
 ARG HTTPS_PROXY
