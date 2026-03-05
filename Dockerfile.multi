@@ -34,24 +34,17 @@ RUN set -eux; \
   dnf -y install tar gzip xz findutils ca-certificates; \
   dnf clean all
 
-# ---- MIRNA CODE (vendored) ----
-# (build context is repo root; code is under 1.0/)
-COPY 1.0/mirna /out/usr/mirna
+COPY mirna /out/usr/mirna
+COPY seed/hg38.tar.gz.part-* /tmp/hg38.tar.gz.part-
+COPY seed/mirbase.tar.gz.part-* /tmp/mirbase.tar.gz.part-
 
-# ---- SEEDS (split tar parts live under 1.0/seed/) ----
-COPY 1.0/seed/hg38.tar.gz.part-* /tmp/hg38.tar.gz.part-
-COPY 1.0/seed/mirbase.tar.gz.part-* /tmp/mirbase.tar.gz.part-
-
-# Reassemble + extract to /out/seed/{hg38,mirbase}
-# IMPORTANT: your tarballs should contain top-level dirs hg38/ and mirbase/
 RUN set -eux; \
   mkdir -p /out/seed; \
   cat /tmp/hg38.tar.gz.part-* > /tmp/hg38.tar.gz; \
   cat /tmp/mirbase.tar.gz.part-* > /tmp/mirbase.tar.gz; \
   tar -xzf /tmp/hg38.tar.gz -C /out/seed; \
   tar -xzf /tmp/mirbase.tar.gz -C /out/seed; \
-  rm -f /tmp/hg38.tar.gz /tmp/mirbase.tar.gz; \
-  rm -f /tmp/hg38.tar.gz.part-* /tmp/mirbase.tar.gz.part-*
+  rm -f /tmp/hg38.tar.gz /tmp/mirbase.tar.gz /tmp/hg38.tar.gz.part-* /tmp/mirbase.tar.gz.part-*
 
 # Sanity check expected extracted dirs exist (fail fast)
 RUN set -eux; \
