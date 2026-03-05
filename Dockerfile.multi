@@ -9,7 +9,7 @@ ARG https_proxy
 ARG no_proxy
 
 # -----------------------------
-# Builder: stage
+# Builder: stage 
 # -----------------------------
 FROM ${REPOSITORY}/ncigdc/amzn2023-builder:${BUILDER_TAG} AS builder
 
@@ -34,15 +34,16 @@ RUN set -eux; \
   dnf -y install tar gzip xz findutils ca-certificates; \
   dnf clean all
 
-# ---- MIRNA CODE
-# (build context is 1.0/, so these are relative to 1.0/)
-COPY mirna /out/usr/mirna
+# ---- MIRNA CODE (vendored) ----
+# (build context is repo root; code is under 1.0/)
+COPY 1.0/mirna /out/usr/mirna
 
-# ---- SEEDS (split tar parts live under seed/) ----
-COPY seed/hg38.tar.gz.part-* /tmp/hg38.tar.gz.part-
-COPY seed/mirbase.tar.gz.part-* /tmp/mirbase.tar.gz.part-
+# ---- SEEDS (split tar parts live under 1.0/seed/) ----
+COPY 1.0/seed/hg38.tar.gz.part-* /tmp/hg38.tar.gz.part-
+COPY 1.0/seed/mirbase.tar.gz.part-* /tmp/mirbase.tar.gz.part-
 
 # Reassemble + extract to /out/seed/{hg38,mirbase}
+# IMPORTANT: your tarballs should contain top-level dirs hg38/ and mirbase/
 RUN set -eux; \
   mkdir -p /out/seed; \
   cat /tmp/hg38.tar.gz.part-* > /tmp/hg38.tar.gz; \
@@ -51,6 +52,11 @@ RUN set -eux; \
   tar -xzf /tmp/mirbase.tar.gz -C /out/seed; \
   rm -f /tmp/hg38.tar.gz /tmp/mirbase.tar.gz; \
   rm -f /tmp/hg38.tar.gz.part-* /tmp/mirbase.tar.gz.part-*
+
+# Sanity check expected extracted dirs exist (fail fast)
+RUN set -eux; \
+  test -d /out/seed/hg38; \
+  test -d /out/seed/mirbase
 
 # -----------------------------
 # Runtime
@@ -73,6 +79,7 @@ ENV http_proxy=${http_proxy}
 ENV https_proxy=${https_proxy}
 ENV no_proxy=${no_proxy}
 
+# Match original intent (original had invalid env var name "mirna-profiler")
 ENV mirna_profiler=0.2.8gdc
 ENV mirna_userid=33
 ENV mirna_user=ubuntu
@@ -96,8 +103,12 @@ RUN set -eux; \
   (dnf -y install vim-enhanced || dnf -y install vim || dnf -y install vim-minimal || true); \
   (dnf -y install perl-DBD-MySQL || dnf -y install perl-DBD-MariaDB || true); \
   (dnf -y install R || dnf -y install R-core || true); \
+  dnf repolist
+  dnf provides '*/mysqld' | head -n 50
   dnf clean all
 
+# Install a MySQL/MariaDB server.
+# If the base image repos don't include server packages, this WILL fail.
 RUN set -eux; \
   dnf -y makecache --refresh; \
   if dnf -y install mariadb105-server mariadb105; then \
