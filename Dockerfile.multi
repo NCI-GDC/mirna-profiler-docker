@@ -1,3 +1,4 @@
+# Dockerfile.multi
 ARG REPOSITORY=docker.osdc.io
 ARG BUILDER_TAG=3.1.0
 
@@ -9,7 +10,7 @@ ARG https_proxy
 ARG no_proxy
 
 # -----------------------------
-# Builder: stage vendored files into /out
+# Builder
 # -----------------------------
 FROM ${REPOSITORY}/ncigdc/amzn2023-builder:${BUILDER_TAG} AS builder
 
@@ -31,18 +32,16 @@ ENV no_proxy=${no_proxy}
 
 RUN set -eux; \
   dnf -y makecache --refresh; \
-  dnf -y install \
-    tar \
-    gzip \
-    xz \
-    findutils \
-    ca-certificates; \
+  dnf -y install tar gzip xz findutils ca-certificates; \
   dnf clean all
 
-COPY mirna /out/usr/mirna
+# ---- MIRNA CODE (vendored) ----
+# If build context is repo root, these live under 1.0/
+COPY 1.0/mirna /out/usr/mirna
 
-COPY seed/hg38.tar.gz.part-* /tmp/hg38.tar.gz.part-
-COPY seed/mirbase.tar.gz.part-* /tmp/mirbase.tar.gz.part-
+# ---- SEEDS (split tar parts) ----
+COPY 1.0/seed/hg38.tar.gz.part-* /tmp/hg38.tar.gz.part-
+COPY 1.0/seed/mirbase.tar.gz.part-* /tmp/mirbase.tar.gz.part-
 
 RUN set -eux; \
   mkdir -p /out/seed; \
@@ -52,7 +51,6 @@ RUN set -eux; \
   tar -xzf /tmp/mirbase.tar.gz -C /out/seed; \
   rm -f /tmp/hg38.tar.gz /tmp/mirbase.tar.gz; \
   rm -f /tmp/hg38.tar.gz.part-* /tmp/mirbase.tar.gz.part-*
-
 
 # -----------------------------
 # Runtime
@@ -84,21 +82,18 @@ ENV mirna_group=ubuntu
 RUN set -eux; \
   dnf -y makecache --refresh; \
   dnf -y install \
-    sudo \
-    shadow-utils \
-    findutils \
-    gzip \
-    tar \
-    ca-certificates \
-    perl \
-    perl-DBI \
+    sudo shadow-utils findutils gzip tar ca-certificates \
+    perl perl-DBI \
   ; \
   (dnf -y install vim-enhanced || dnf -y install vim || dnf -y install vim-minimal || true); \
   (dnf -y install perl-DBD-MySQL || dnf -y install perl-DBD-MariaDB || true); \
   (dnf -y install R || dnf -y install R-core || true); \
   dnf clean all
 
-# Install a MySQL/MariaDB server (best-effort across common AL2023 naming)
+# NOTE: Your earlier build logs show MariaDB packages may not exist in this base’s enabled repos.
+# Keep this as-is; if it fails again, you must either:
+#   - switch base image to one with mysql/mariadb repos enabled, OR
+#   - copy /var/lib/mysql from an existing image and NOT install server packages.
 RUN set -eux; \
   dnf -y makecache --refresh; \
   if dnf -y install mariadb105-server mariadb105; then \
@@ -109,18 +104,16 @@ RUN set -eux; \
     echo "Installed mariadb-server"; \
   else \
     echo "ERROR: No MariaDB/MySQL server packages available from enabled dnf repos in this base image." >&2; \
-    echo "       You may need the base image to enable the right repos, or switch base to one that includes a server." >&2; \
     exit 1; \
   fi; \
   dnf clean all
 
-# Place mirna code
 COPY --from=builder /out/usr/mirna /usr/mirna
 
-COPY --from=builder /out/seed/hg38 /opt/seed/hg38
-COPY --from=builder /out/seed/mirbase /opt/seed/mirbase
+# The tar extraction creates /out/seed/hg38 and /out/seed/mirbase
+COPY --from=builder /out/seed/hg38 /var/lib/mysql/hg38
+COPY --from=builder /out/seed/mirbase /var/lib/mysql/mirbase
 
-# Users/groups like original (AL2023: wheel is admin group; sudoers.d)
 RUN set -eux; \
   if ! getent group "${mirna_groupid}" >/dev/null; then \
     groupadd -g "${mirna_groupid}" "${mirna_group}"; \
@@ -149,24 +142,7 @@ RUN set -eux; \
 RUN set -eux; \
   printf "hg38\tlocalhost\troot\t\n" >> /usr/mirna/config/db_connections.cfg; \
   printf "mirbase\tlocalhost\troot\t\n" >> /usr/mirna/config/db_connections.cfg; \
-  chown -R "${mirna_user}.${mirna_group}" /usr/mirna
-
-RUN set -eux; \
-  mkdir -p /var/lib/mysql /var/run/mysqld; \
-  chown -R mysql:mysql /var/lib/mysql /var/run/mysqld; \
-  \
-  if command -v mariadb-install-db >/dev/null 2>&1; then \
-    mariadb-install-db --user=mysql --datadir=/var/lib/mysql; \
-  elif command -v mysql_install_db >/dev/null 2>&1; then \
-    mysql_install_db --user=mysql --datadir=/var/lib/mysql; \
-  else \
-    echo "WARNING: No *install-db helper found; continuing, but runtime may require manual init." >&2; \
-  fi; \
-  \
-  rm -rf /var/lib/mysql/hg38 /var/lib/mysql/mirbase; \
-  cp -a /opt/seed/hg38 /var/lib/mysql/hg38; \
-  cp -a /opt/seed/mirbase /var/lib/mysql/mirbase; \
-  chown -R mysql:mysql /var/lib/mysql/hg38 /var/lib/mysql/mirbase; \
-  rm -rf /opt/seed
+  chown -R "${mirna_user}.${mirna_group}" /usr/mirna; \
+  chown -R mysql:mysql /var/lib/mysql/hg38 /var/lib/mysql/mirbase || true
 
 WORKDIR /usr/mirna
