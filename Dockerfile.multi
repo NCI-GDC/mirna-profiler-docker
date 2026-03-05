@@ -1,3 +1,12 @@
+# Dockerfile.multi
+#
+# Assumptions (matches your build.sh behavior):
+# - Build context is the VERSION directory, e.g. 1.0/
+# - Therefore these paths exist in context:
+#     mirna/
+#     seed/hg38.tar.gz.part-*
+#     seed/mirbase.tar.gz.part-*
+
 ARG REPOSITORY=docker.osdc.io
 ARG BUILDER_TAG=3.1.0
 
@@ -9,7 +18,7 @@ ARG https_proxy
 ARG no_proxy
 
 # -----------------------------
-# Builder: stage
+# Builder: stage vendored files into /out
 # -----------------------------
 FROM ${REPOSITORY}/ncigdc/amzn2023-builder:${BUILDER_TAG} AS builder
 
@@ -34,49 +43,38 @@ RUN set -eux; \
   dnf -y install tar gzip xz findutils ca-certificates; \
   dnf clean all
 
-# Bring the full build context into the image, regardless of whether the context is repo root or 1.0/
-COPY . /src
+# ---- MIRNA CODE (vendored) ----
+COPY mirna /out/usr/mirna
 
-# Stage mirna + seeds into /out from whichever layout exists in /src
+# ---- SEEDS (split tar parts) ----
+# Copy parts into image
+COPY seed/hg38.tar.gz.part-* /tmp/
+COPY seed/mirbase.tar.gz.part-* /tmp/
+
+# Reassemble + extract to /out/seed/{hg38,mirbase}
 RUN set -eux; \
-  mkdir -p /out/usr /out/seed; \
+  mkdir -p /out/seed; \
   \
-  # ---- mirna source ----
-  if [ -d /src/mirna ]; then \
-    cp -a /src/mirna /out/usr/mirna; \
-  elif [ -d /src/1.0/mirna ]; then \
-    cp -a /src/1.0/mirna /out/usr/mirna; \
-  else \
-    echo "ERROR: mirna dir not found in build context (expected /src/mirna or /src/1.0/mirna)" >&2; \
-    ls -lah /src >&2; \
-    exit 1; \
-  fi; \
+  echo "== Seed parts present in /tmp =="; \
+  ls -lah /tmp/hg38.tar.gz.part-* /tmp/mirbase.tar.gz.part-*; \
   \
-  # ---- seed tar parts ----
-  if [ -d /src/seed ]; then \
-    SEED=/src/seed; \
-  elif [ -d /src/1.0/seed ]; then \
-    SEED=/src/1.0/seed; \
-  else \
-    echo "ERROR: seed dir not found in build context (expected /src/seed or /src/1.0/seed)" >&2; \
-    ls -lah /src >&2; \
-    exit 1; \
-  fi; \
+  # Make sure globs actually matched something (otherwise cat fails mysteriously)
+  test -f /tmp/hg38.tar.gz.part-aaa; \
+  test -f /tmp/mirbase.tar.gz.part-aaa; \
   \
-  ls -lah "${SEED}" >&2; \
+  cat /tmp/hg38.tar.gz.part-* > /tmp/hg38.tar.gz; \
+  cat /tmp/mirbase.tar.gz.part-* > /tmp/mirbase.tar.gz; \
   \
-  cat "${SEED}"/hg38.tar.gz.part-* > /tmp/hg38.tar.gz; \
-  cat "${SEED}"/mirbase.tar.gz.part-* > /tmp/mirbase.tar.gz; \
-  \
+  # Your tarballs should contain top-level hg38/ and mirbase/ directories
   tar -xzf /tmp/hg38.tar.gz -C /out/seed; \
   tar -xzf /tmp/mirbase.tar.gz -C /out/seed; \
   \
-  rm -f /tmp/hg38.tar.gz /tmp/mirbase.tar.gz
-
-# Sanity check expected extracted dirs exist (fail fast)
-RUN set -eux; \
+  # Validate expected dirs exist after extract
   test -d /out/seed/hg38; \
-  test -d /out/seed/mirbase
+  test -d /out/seed/mirbase; \
+  \
+  rm -f /tmp/hg38.tar.gz /tmp/mirbase.tar.gz; \
+  rm -f /tmp/hg38.tar.gz.part-* /tmp/mirbase.tar.gz.part-*
 
 # -----------------------------
 # Runtime
@@ -99,14 +97,14 @@ ENV http_proxy=${http_proxy}
 ENV https_proxy=${https_proxy}
 ENV no_proxy=${no_proxy}
 
-# Match original intent (original had invalid env var name "mirna-profiler")
+# Match original intent (original used invalid env name "mirna-profiler")
 ENV mirna_profiler=0.2.8gdc
 ENV mirna_userid=33
 ENV mirna_user=ubuntu
 ENV mirna_groupid=33
 ENV mirna_group=ubuntu
 
-# Base deps used by pipeline + admin tools
+# Base utilities + Perl + R
 RUN set -eux; \
   dnf -y makecache --refresh; \
   dnf -y install \
@@ -118,45 +116,37 @@ RUN set -eux; \
     ca-certificates \
     perl \
     perl-DBI \
-    wget \
   ; \
   (dnf -y install vim-enhanced || dnf -y install vim || dnf -y install vim-minimal || true); \
   (dnf -y install perl-DBD-MySQL || dnf -y install perl-DBD-MariaDB || true); \
   (dnf -y install R || dnf -y install R-core || true); \
   dnf clean all
 
-# Install a MySQL/MariaDB server.
-# If the base image repos don't include server packages, this WILL fail.
+# Install whichever package provides mysqld/mariadbd (don’t guess names)
 RUN set -eux; \
   dnf -y makecache --refresh; \
-  if dnf -y install mariadb105-server mariadb105; then \
-    echo "Installed mariadb105-server + mariadb105"; \
-  elif dnf -y install mariadb-server mariadb; then \
-    echo "Installed mariadb-server + mariadb"; \
-  elif dnf -y install mysql-server mysql; then \
-    echo "Installed mysql-server + mysql"; \
-  else \
-    echo "Direct install attempts failed; trying to discover mysqld provider..."; \
-    pkg="$(dnf -q provides '*/mysqld' 2>/dev/null | awk -F: '/:/{print $1; exit}')" || true; \
-    if [ -n "${pkg:-}" ]; then \
-      echo "Installing mysqld provider package: ${pkg}"; \
-      dnf -y install "${pkg}"; \
-    else \
-      echo "ERROR: Could not find any package providing mysqld from enabled dnf repos." >&2; \
-      echo "       Run: dnf repolist && dnf provides '*/mysqld' inside the base image to see what's available." >&2; \
-      exit 1; \
-    fi; \
+  pkg="$(dnf -q provides '*/mysqld' 2>/dev/null | awk -F: '/:/{print $1; exit}')" || true; \
+  if [ -z "${pkg}" ]; then \
+    pkg="$(dnf -q provides '*/mariadbd' 2>/dev/null | awk -F: '/:/{print $1; exit}')" || true; \
   fi; \
+  if [ -z "${pkg}" ]; then \
+    echo "ERROR: Could not find any package providing mysqld/mariadbd from enabled dnf repos." >&2; \
+    echo "       Dumping repo list for debugging:" >&2; \
+    dnf repolist >&2 || true; \
+    exit 1; \
+  fi; \
+  echo "Installing DB server provider: ${pkg}"; \
+  dnf -y install "${pkg}"; \
   dnf clean all
 
 # Place mirna code
 COPY --from=builder /out/usr/mirna /usr/mirna
 
-# Copy extracted seed DB directories
+# Place extracted seed datadirs
 COPY --from=builder /out/seed/hg38 /opt/seed/hg38
 COPY --from=builder /out/seed/mirbase /opt/seed/mirbase
 
-# Users/groups like original (AL2023: wheel is admin group)
+# Users/groups like original (AL2023: wheel is admin group; sudoers.d)
 RUN set -eux; \
   if ! getent group "${mirna_groupid}" >/dev/null; then \
     groupadd -g "${mirna_groupid}" "${mirna_group}"; \
@@ -182,14 +172,13 @@ RUN set -eux; \
     chmod 0440 /etc/sudoers.d/default; \
   fi
 
-# Configure db connections like original
+# Configure mirna db connections like original
 RUN set -eux; \
   printf "hg38\tlocalhost\troot\t\n" >> /usr/mirna/config/db_connections.cfg; \
   printf "mirbase\tlocalhost\troot\t\n" >> /usr/mirna/config/db_connections.cfg; \
   chown -R "${mirna_user}.${mirna_group}" /usr/mirna
 
-# Initialize system DBs, then drop in the prebuilt hg38/mirbase directories.
-# No imports, no downloads.
+# Initialize system tables, then drop in the prebuilt hg38/mirbase datadir directories
 RUN set -eux; \
   mkdir -p /var/lib/mysql /var/run/mysqld; \
   chown -R mysql:mysql /var/lib/mysql /var/run/mysqld; \
@@ -199,7 +188,7 @@ RUN set -eux; \
   elif command -v mysql_install_db >/dev/null 2>&1; then \
     mysql_install_db --user=mysql --datadir=/var/lib/mysql; \
   else \
-    echo "ERROR: No mariadb-install-db/mysql_install_db helper found." >&2; \
+    echo "ERROR: No database init helper found (mariadb-install-db/mysql_install_db)." >&2; \
     exit 1; \
   fi; \
   \
@@ -207,6 +196,7 @@ RUN set -eux; \
   cp -a /opt/seed/hg38 /var/lib/mysql/hg38; \
   cp -a /opt/seed/mirbase /var/lib/mysql/mirbase; \
   chown -R mysql:mysql /var/lib/mysql/hg38 /var/lib/mysql/mirbase; \
+  \
   rm -rf /opt/seed
 
 WORKDIR /usr/mirna
