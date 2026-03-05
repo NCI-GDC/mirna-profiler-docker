@@ -1,0 +1,172 @@
+ARG REPOSITORY=docker.osdc.io
+ARG BUILDER_TAG=3.1.0
+
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+ARG http_proxy
+ARG https_proxy
+ARG no_proxy
+
+# -----------------------------
+# Builder: stage vendored files into /out
+# -----------------------------
+FROM ${REPOSITORY}/ncigdc/amzn2023-builder:${BUILDER_TAG} AS builder
+
+ARG VERSION
+
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+ARG http_proxy
+ARG https_proxy
+ARG no_proxy
+
+ENV HTTP_PROXY=${HTTP_PROXY}
+ENV HTTPS_PROXY=${HTTPS_PROXY}
+ENV NO_PROXY=${NO_PROXY}
+ENV http_proxy=${http_proxy}
+ENV https_proxy=${https_proxy}
+ENV no_proxy=${no_proxy}
+
+RUN set -eux; \
+  dnf -y makecache --refresh; \
+  dnf -y install \
+    tar \
+    gzip \
+    xz \
+    findutils \
+    ca-certificates; \
+  dnf clean all
+
+COPY mirna /out/usr/mirna
+
+COPY seed/hg38.tar.gz.part-* /tmp/hg38.tar.gz.part-
+COPY seed/mirbase.tar.gz.part-* /tmp/mirbase.tar.gz.part-
+
+RUN set -eux; \
+  mkdir -p /out/seed; \
+  cat /tmp/hg38.tar.gz.part-* > /tmp/hg38.tar.gz; \
+  cat /tmp/mirbase.tar.gz.part-* > /tmp/mirbase.tar.gz; \
+  tar -xzf /tmp/hg38.tar.gz -C /out/seed; \
+  tar -xzf /tmp/mirbase.tar.gz -C /out/seed; \
+  rm -f /tmp/hg38.tar.gz /tmp/mirbase.tar.gz; \
+  rm -f /tmp/hg38.tar.gz.part-* /tmp/mirbase.tar.gz.part-*
+
+
+# -----------------------------
+# Runtime
+# -----------------------------
+FROM ${REPOSITORY}/ncigdc/amzn2023:${BUILDER_TAG}
+
+ARG VERSION
+
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+ARG http_proxy
+ARG https_proxy
+ARG no_proxy
+
+ENV HTTP_PROXY=${HTTP_PROXY}
+ENV HTTPS_PROXY=${HTTPS_PROXY}
+ENV NO_PROXY=${NO_PROXY}
+ENV http_proxy=${http_proxy}
+ENV https_proxy=${https_proxy}
+ENV no_proxy=${no_proxy}
+
+ENV mirna_profiler=0.2.8gdc
+ENV mirna_userid=33
+ENV mirna_user=ubuntu
+ENV mirna_groupid=33
+ENV mirna_group=ubuntu
+
+RUN set -eux; \
+  dnf -y makecache --refresh; \
+  dnf -y install \
+    sudo \
+    shadow-utils \
+    findutils \
+    gzip \
+    tar \
+    ca-certificates \
+    perl \
+    perl-DBI \
+  ; \
+  (dnf -y install vim-enhanced || dnf -y install vim || dnf -y install vim-minimal || true); \
+  (dnf -y install perl-DBD-MySQL || dnf -y install perl-DBD-MariaDB || true); \
+  (dnf -y install R || dnf -y install R-core || true); \
+  dnf clean all
+
+# Install a MySQL/MariaDB server (best-effort across common AL2023 naming)
+RUN set -eux; \
+  dnf -y makecache --refresh; \
+  if dnf -y install mariadb105-server mariadb105; then \
+    echo "Installed mariadb105-server + mariadb105"; \
+  elif dnf -y install mariadb-server mariadb; then \
+    echo "Installed mariadb-server + mariadb"; \
+  elif dnf -y install mariadb-server; then \
+    echo "Installed mariadb-server"; \
+  else \
+    echo "ERROR: No MariaDB/MySQL server packages available from enabled dnf repos in this base image." >&2; \
+    echo "       You may need the base image to enable the right repos, or switch base to one that includes a server." >&2; \
+    exit 1; \
+  fi; \
+  dnf clean all
+
+# Place mirna code
+COPY --from=builder /out/usr/mirna /usr/mirna
+
+COPY --from=builder /out/seed/hg38 /opt/seed/hg38
+COPY --from=builder /out/seed/mirbase /opt/seed/mirbase
+
+# Users/groups like original (AL2023: wheel is admin group; sudoers.d)
+RUN set -eux; \
+  if ! getent group "${mirna_groupid}" >/dev/null; then \
+    groupadd -g "${mirna_groupid}" "${mirna_group}"; \
+  else \
+    existing="$(getent group "${mirna_groupid}" | cut -d: -f1)"; \
+    if [ "${existing}" != "${mirna_group}" ]; then groupmod -n "${mirna_group}" "${existing}"; fi; \
+  fi; \
+  if ! getent passwd "${mirna_userid}" >/dev/null; then \
+    useradd -m -u "${mirna_userid}" -g "${mirna_groupid}" -s /bin/bash "${mirna_user}"; \
+  else \
+    existing="$(getent passwd "${mirna_userid}" | cut -d: -f1)"; \
+    if [ "${existing}" != "${mirna_user}" ]; then usermod -l "${mirna_user}" "${existing}"; fi; \
+  fi; \
+  usermod -aG wheel "${mirna_user}"; \
+  echo "${mirna_user} ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/${mirna_user}"; \
+  chmod 0440 "/etc/sudoers.d/${mirna_user}"; \
+  if ! getent group 1000 >/dev/null; then groupadd -g 1000 default; fi; \
+  if ! getent passwd 1000 >/dev/null; then \
+    useradd -m -u 1000 -g 1000 -s /bin/bash default; \
+    usermod -aG wheel default; \
+    usermod -aG "${mirna_group}" default; \
+    echo "default ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/default; \
+    chmod 0440 /etc/sudoers.d/default; \
+  fi
+
+RUN set -eux; \
+  printf "hg38\tlocalhost\troot\t\n" >> /usr/mirna/config/db_connections.cfg; \
+  printf "mirbase\tlocalhost\troot\t\n" >> /usr/mirna/config/db_connections.cfg; \
+  chown -R "${mirna_user}.${mirna_group}" /usr/mirna
+
+RUN set -eux; \
+  mkdir -p /var/lib/mysql /var/run/mysqld; \
+  chown -R mysql:mysql /var/lib/mysql /var/run/mysqld; \
+  \
+  if command -v mariadb-install-db >/dev/null 2>&1; then \
+    mariadb-install-db --user=mysql --datadir=/var/lib/mysql; \
+  elif command -v mysql_install_db >/dev/null 2>&1; then \
+    mysql_install_db --user=mysql --datadir=/var/lib/mysql; \
+  else \
+    echo "WARNING: No *install-db helper found; continuing, but runtime may require manual init." >&2; \
+  fi; \
+  \
+  rm -rf /var/lib/mysql/hg38 /var/lib/mysql/mirbase; \
+  cp -a /opt/seed/hg38 /var/lib/mysql/hg38; \
+  cp -a /opt/seed/mirbase /var/lib/mysql/mirbase; \
+  chown -R mysql:mysql /var/lib/mysql/hg38 /var/lib/mysql/mirbase; \
+  rm -rf /opt/seed
+
+WORKDIR /usr/mirna

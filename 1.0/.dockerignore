@@ -1,0 +1,12 @@
+# Ignore everything by default
+**
+
+# Re-include what the Docker build needs
+!mirna/
+!mirna/**
+
+!justfile
+!Makefile
+
+# (optional) keep git noise out if it exists under mirna
+mirna/.git
