@@ -34,17 +34,44 @@ RUN set -eux; \
   dnf -y install tar gzip xz findutils ca-certificates; \
   dnf clean all
 
-COPY mirna /out/usr/mirna
-COPY seed/hg38.tar.gz.part-* /tmp/hg38.tar.gz.part-
-COPY seed/mirbase.tar.gz.part-* /tmp/mirbase.tar.gz.part-
+# Bring the full build context into the image, regardless of whether the context is repo root or 1.0/
+COPY . /src
 
+# Stage mirna + seeds into /out from whichever layout exists in /src
 RUN set -eux; \
-  mkdir -p /out/seed; \
-  cat /tmp/hg38.tar.gz.part-* > /tmp/hg38.tar.gz; \
-  cat /tmp/mirbase.tar.gz.part-* > /tmp/mirbase.tar.gz; \
+  mkdir -p /out/usr /out/seed; \
+  \
+  # ---- mirna source ----
+  if [ -d /src/mirna ]; then \
+    cp -a /src/mirna /out/usr/mirna; \
+  elif [ -d /src/1.0/mirna ]; then \
+    cp -a /src/1.0/mirna /out/usr/mirna; \
+  else \
+    echo "ERROR: mirna dir not found in build context (expected /src/mirna or /src/1.0/mirna)" >&2; \
+    ls -lah /src >&2; \
+    exit 1; \
+  fi; \
+  \
+  # ---- seed tar parts ----
+  if [ -d /src/seed ]; then \
+    SEED=/src/seed; \
+  elif [ -d /src/1.0/seed ]; then \
+    SEED=/src/1.0/seed; \
+  else \
+    echo "ERROR: seed dir not found in build context (expected /src/seed or /src/1.0/seed)" >&2; \
+    ls -lah /src >&2; \
+    exit 1; \
+  fi; \
+  \
+  ls -lah "${SEED}" >&2; \
+  \
+  cat "${SEED}"/hg38.tar.gz.part-* > /tmp/hg38.tar.gz; \
+  cat "${SEED}"/mirbase.tar.gz.part-* > /tmp/mirbase.tar.gz; \
+  \
   tar -xzf /tmp/hg38.tar.gz -C /out/seed; \
   tar -xzf /tmp/mirbase.tar.gz -C /out/seed; \
-  rm -f /tmp/hg38.tar.gz /tmp/mirbase.tar.gz /tmp/hg38.tar.gz.part-* /tmp/mirbase.tar.gz.part-*
+  \
+  rm -f /tmp/hg38.tar.gz /tmp/mirbase.tar.gz
 
 # Sanity check expected extracted dirs exist (fail fast)
 RUN set -eux; \
