@@ -103,8 +103,6 @@ RUN set -eux; \
   (dnf -y install vim-enhanced || dnf -y install vim || dnf -y install vim-minimal || true); \
   (dnf -y install perl-DBD-MySQL || dnf -y install perl-DBD-MariaDB || true); \
   (dnf -y install R || dnf -y install R-core || true); \
-  dnf repolist
-  dnf provides '*/mysqld' | head -n 50
   dnf clean all
 
 # Install a MySQL/MariaDB server.
