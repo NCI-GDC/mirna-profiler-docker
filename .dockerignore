@@ -1,4 +1,4 @@
-__pycache__/
+k__pycache__/
 *.py[cod]
 *$py.class
 .vscode/
@@ -24,10 +24,9 @@ coverage.xml
 *
 !mirna
 !mirna/**
-!seed
-!seed/**
-!vendor
-!vendor/**
+!hg38.tar.gz.part-*
+!mirbase.tar.gz.part-*
+!mysql57.tar.gz
 !justfile
 !Makefile
 !Dockerfile.multi

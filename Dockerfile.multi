@@ -31,14 +31,15 @@ RUN set -eux; \
   dnf clean all
 
 COPY mirna /out/usr/mirna
-COPY seed/ /src/seed/
-COPY vendor/mysql57.tar.gz /src/vendor/mysql57.tar.gz
+COPY hg38.tar.gz.part-* /tmp/
+COPY mirbase.tar.gz.part-* /tmp/
+COPY mysql57.tar.gz /tmp/mysql57.tar.gz
 
 RUN set -eux; \
-  mkdir -p /out/seed /out/vendor /tmp/assemble /src/vendor; \
-  cat /src/seed/hg38.tar.gz.part-* > /tmp/assemble/hg38.tar.gz; \
-  cat /src/seed/mirbase.tar.gz.part-* > /tmp/assemble/mirbase.tar.gz; \
-  cp -a /src/vendor/mysql57.tar.gz /tmp/assemble/mysql57.tar.gz; \
+  mkdir -p /out/seed /out/vendor /tmp/assemble; \
+  cat /tmp/hg38.tar.gz.part-* > /tmp/assemble/hg38.tar.gz; \
+  cat /tmp/mirbase.tar.gz.part-* > /tmp/assemble/mirbase.tar.gz; \
+  cp -a /tmp/mysql57.tar.gz /tmp/assemble/mysql57.tar.gz; \
   tar -xzf /tmp/assemble/hg38.tar.gz -C /out/seed; \
   tar -xzf /tmp/assemble/mirbase.tar.gz -C /out/seed; \
   tar -xzf /tmp/assemble/mysql57.tar.gz -C /out/vendor; \
@@ -46,7 +47,7 @@ RUN set -eux; \
   test -d /out/seed/mirbase; \
   test -d /out/vendor/mysql57; \
   test -x /out/vendor/mysql57/bin/mysqld; \
-  rm -rf /tmp/assemble
+  rm -rf /tmp/assemble /tmp/hg38.tar.gz.part-* /tmp/mirbase.tar.gz.part-* /tmp/mysql57.tar.gz
 
 FROM ${REPOSITORY}/ncigdc/amzn2023:${BUILDER_TAG}
 
@@ -120,8 +121,10 @@ RUN set -eux; \
   fi
 
 RUN set -eux; \
-  printf "hg38\tlocalhost\troot\t\n" >> /usr/mirna/config/db_connections.cfg; \
-  printf "mirbase\tlocalhost\troot\t\n" >> /usr/mirna/config/db_connections.cfg; \
+  grep -q $'hg38\tlocalhost\troot' /usr/mirna/config/db_connections.cfg || \
+    printf "hg38\tlocalhost\troot\t\n" >> /usr/mirna/config/db_connections.cfg; \
+  grep -q $'mirbase\tlocalhost\troot' /usr/mirna/config/db_connections.cfg || \
+    printf "mirbase\tlocalhost\troot\t\n" >> /usr/mirna/config/db_connections.cfg; \
   chown -R "${mirna_user}.${mirna_group}" /usr/mirna
 
 RUN set -eux; \
