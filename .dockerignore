@@ -20,3 +20,12 @@ nosetests.xml
 coverage.xml
 *.cover
 *.log
+*
+!mirna/**
+!seed/**
+!vendor/**
+!Dockerfile.multi
+!Makefile
+!justfile
+!build.sh
+!LICENSE
