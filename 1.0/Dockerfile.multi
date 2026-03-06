@@ -30,16 +30,14 @@ RUN set -eux; \
   dnf -y install tar gzip xz findutils ca-certificates; \
   dnf clean all
 
-COPY mirna /out/usr/mirna
-COPY hg38.tar.gz.part-* /tmp/
-COPY mirbase.tar.gz.part-* /tmp/
-COPY mysql57.tar.gz /tmp/mysql57.tar.gz
+COPY mirna /src/mirna
 
 RUN set -eux; \
-  mkdir -p /out/seed /out/vendor /tmp/assemble; \
-  cat /tmp/hg38.tar.gz.part-* > /tmp/assemble/hg38.tar.gz; \
-  cat /tmp/mirbase.tar.gz.part-* > /tmp/assemble/mirbase.tar.gz; \
-  cp -a /tmp/mysql57.tar.gz /tmp/assemble/mysql57.tar.gz; \
+  mkdir -p /out/usr /out/seed /out/vendor /tmp/assemble; \
+  cp -a /src/mirna /out/usr/mirna; \
+  cat /src/mirna/assets/hg38.tar.gz.part-* > /tmp/assemble/hg38.tar.gz; \
+  cat /src/mirna/assets/mirbase.tar.gz.part-* > /tmp/assemble/mirbase.tar.gz; \
+  cp -a /src/mirna/assets/mysql57.tar.gz /tmp/assemble/mysql57.tar.gz; \
   tar -xzf /tmp/assemble/hg38.tar.gz -C /out/seed; \
   tar -xzf /tmp/assemble/mirbase.tar.gz -C /out/seed; \
   tar -xzf /tmp/assemble/mysql57.tar.gz -C /out/vendor; \
@@ -47,7 +45,7 @@ RUN set -eux; \
   test -d /out/seed/mirbase; \
   test -d /out/vendor/mysql57; \
   test -x /out/vendor/mysql57/bin/mysqld; \
-  rm -rf /tmp/assemble /tmp/hg38.tar.gz.part-* /tmp/mirbase.tar.gz.part-* /tmp/mysql57.tar.gz
+  rm -rf /tmp/assemble /out/usr/mirna/assets
 
 FROM ${REPOSITORY}/ncigdc/amzn2023:${BUILDER_TAG}
 
