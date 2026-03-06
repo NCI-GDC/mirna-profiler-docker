@@ -110,15 +110,17 @@ ENV/
 test-reports/
 
 **
-!.dockerignore
-!Dockerfile*
 !1.0/**
-!justfile
 !build.sh
 !LICENSE
-!vendor/
-!vendor/**
-!seed/
-!seed/**
+
+**
 !mirna/
 !mirna/**
+!seed/
+!seed/**
+!vendor/
+!vendor/**
+!justfile
+!Makefile
+!Dockerfile.multi
