@@ -14,6 +14,9 @@ variables:
 
 build_dockers:
   stage: build
+  variables:
+    GIT_DEPTH: 0        # full clone, no shallow
+    BASE_CONTAINER_REGISTRY: "docker.osdc.io"
   services:
     - docker:${DOCKER_VERSION}-dind
   tags:
@@ -21,7 +24,5 @@ build_dockers:
   before_script:
     - docker info
     - apk add --no-cache bash moreutils git go curl just
-  variables:
-    BASE_CONTAINER_REGISTRY: "docker.osdc.io"
   script:
     - /bin/bash build.sh -b "$CI_COMMIT_BRANCH"
