@@ -36,35 +36,34 @@ RUN set -eux; \
 
 COPY mirna /out/usr/mirna
 COPY seed/ /src/seed/
-COPY vendor/ /src/vendor/
+COPY vendor/mysql57.tar.gz /src/vendor/mysql57.tar.gz
 
 RUN set -eux; \
-  assemble() { \
-    name="$1"; \
-    srcdir="$2"; \
-    out="$3"; \
-    if [ -f "${srcdir}/${name}.tar.gz" ]; then \
-      cp -a "${srcdir}/${name}.tar.gz" "${out}"; \
-    elif ls "${srcdir}/${name}.tar.gz.part-"* >/dev/null 2>&1; then \
-      cat "${srcdir}/${name}.tar.gz.part-"* > "${out}"; \
-    else \
-      echo "ERROR: missing ${name}.tar.gz or split parts in ${srcdir}" >&2; \
-      ls -lah "${srcdir}" >&2 || true; \
-      exit 1; \
-    fi; \
-  }; \
   mkdir -p /out/seed /out/vendor /tmp/assemble; \
-  assemble hg38 /src/seed /tmp/assemble/hg38.tar.gz; \
-  assemble mirbase /src/seed /tmp/assemble/mirbase.tar.gz; \
-  assemble mysql57 /src/vendor /tmp/assemble/mysql57.tar.gz; \
+  \
+  if [ -f /src/seed/hg38.tar.gz ]; then \
+    cp -a /src/seed/hg38.tar.gz /tmp/assemble/hg38.tar.gz; \
+  else \
+    cat /src/seed/hg38.tar.gz.part-* > /tmp/assemble/hg38.tar.gz; \
+  fi; \
+  \
+  if [ -f /src/seed/mirbase.tar.gz ]; then \
+    cp -a /src/seed/mirbase.tar.gz /tmp/assemble/mirbase.tar.gz; \
+  else \
+    cat /src/seed/mirbase.tar.gz.part-* > /tmp/assemble/mirbase.tar.gz; \
+  fi; \
+  \
+  cp -a /src/vendor/mysql57.tar.gz /tmp/assemble/mysql57.tar.gz; \
+  \
   tar -xzf /tmp/assemble/hg38.tar.gz -C /out/seed; \
   tar -xzf /tmp/assemble/mirbase.tar.gz -C /out/seed; \
   tar -xzf /tmp/assemble/mysql57.tar.gz -C /out/vendor; \
+  \
   test -d /out/seed/hg38; \
   test -d /out/seed/mirbase; \
   test -d /out/vendor/mysql57; \
   test -x /out/vendor/mysql57/bin/mysqld; \
-  test -x /out/vendor/mysql57/bin/mysql_install_db; \
+  \
   rm -rf /tmp/assemble
 
 # -----------------------------
@@ -96,7 +95,7 @@ ENV mirna_group=ubuntu
 
 ENV MYSQL57_HOME=/opt/mysql57
 ENV PATH=/opt/mysql57/bin:${PATH}
-ENV LD_LIBRARY_PATH=/opt/mysql57/lib:${LD_LIBRARY_PATH}
+ENV LD_LIBRARY_PATH=/opt/mysql57/lib
 
 RUN set -eux; \
   dnf -y makecache --refresh; \
@@ -108,8 +107,7 @@ RUN set -eux; \
     tar \
     ca-certificates \
     perl \
-    perl-DBI \
-  ; \
+    perl-DBI; \
   (dnf -y install vim-enhanced || dnf -y install vim || dnf -y install vim-minimal || true); \
   (dnf -y install perl-DBD-MySQL || dnf -y install perl-DBD-MariaDB || true); \
   (dnf -y install R || dnf -y install R-core || true); \
@@ -130,21 +128,15 @@ RUN set -eux; \
 RUN set -eux; \
   if ! getent group "${mirna_groupid}" >/dev/null; then \
     groupadd -g "${mirna_groupid}" "${mirna_group}"; \
-  else \
-    existing="$(getent group "${mirna_groupid}" | cut -d: -f1)"; \
-    if [ "${existing}" != "${mirna_group}" ]; then groupmod -n "${mirna_group}" "${existing}"; fi; \
   fi; \
   if ! getent passwd "${mirna_userid}" >/dev/null; then \
     useradd -m -u "${mirna_userid}" -g "${mirna_groupid}" -s /bin/bash "${mirna_user}"; \
-  else \
-    existing="$(getent passwd "${mirna_userid}" | cut -d: -f1)"; \
-    if [ "${existing}" != "${mirna_user}" ]; then usermod -l "${mirna_user}" "${existing}"; fi; \
   fi; \
   if ! getent group mysql >/dev/null; then groupadd -r mysql || true; fi; \
   if ! getent passwd mysql >/dev/null; then useradd -r -g mysql -s /sbin/nologin mysql || true; fi; \
   usermod -aG wheel "${mirna_user}"; \
-  echo "${mirna_user} ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/${mirna_user}"; \
-  chmod 0440 "/etc/sudoers.d/${mirna_user}"; \
+  echo "${mirna_user} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${mirna_user}; \
+  chmod 0440 /etc/sudoers.d/${mirna_user}; \
   if ! getent group 1000 >/dev/null; then groupadd -g 1000 default; fi; \
   if ! getent passwd 1000 >/dev/null; then \
     useradd -m -u 1000 -g 1000 -s /bin/bash default; \

@@ -116,3 +116,9 @@ test-reports/
 !justfile
 !build.sh
 !LICENSE
+!vendor/
+!vendor/**
+!seed/
+!seed/**
+!mirna/
+!mirna/**
