@@ -33,17 +33,16 @@ RUN set -eux; \
 COPY mirna /src/mirna
 
 RUN set -eux; \
-  mkdir -p /out/usr /out/seed /out/vendor /tmp/assemble; \
+  mkdir -p /out/usr /out/seed /out/vendor/mysql57 /tmp/assemble; \
   cp -a /src/mirna /out/usr/mirna; \
   cat /src/mirna/assets/hg38.tar.gz.part-* > /tmp/assemble/hg38.tar.gz; \
   cat /src/mirna/assets/mirbase.tar.gz.part-* > /tmp/assemble/mirbase.tar.gz; \
   cp -a /src/mirna/assets/mysql57.tar.gz /tmp/assemble/mysql57.tar.gz; \
   tar -xzf /tmp/assemble/hg38.tar.gz -C /out/seed; \
   tar -xzf /tmp/assemble/mirbase.tar.gz -C /out/seed; \
-  tar -xzf /tmp/assemble/mysql57.tar.gz -C /out/vendor; \
+  tar -xzf /tmp/assemble/mysql57.tar.gz -C /out/vendor/mysql57; \
   test -d /out/seed/hg38; \
   test -d /out/seed/mirbase; \
-  test -d /out/vendor/mysql57; \
   test -x /out/vendor/mysql57/bin/mysqld; \
   rm -rf /tmp/assemble /out/usr/mirna/assets
 
