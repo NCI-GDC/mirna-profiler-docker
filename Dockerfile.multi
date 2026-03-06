@@ -30,10 +30,10 @@ RUN set -eux; \
   dnf -y install tar gzip xz findutils ca-certificates; \
   dnf clean all
 
-COPY mirna /out/usr/mirna
-COPY hg38.tar.gz.part-* /tmp/
-COPY mirbase.tar.gz.part-* /tmp/
-COPY mysql57.tar.gz /tmp/mysql57.tar.gz
+COPY 1.0/mirna /out/usr/mirna
+COPY 1.0/hg38.tar.gz.part-* /tmp/
+COPY 1.0/mirbase.tar.gz.part-* /tmp/
+COPY 1.0/mysql57.tar.gz /tmp/mysql57.tar.gz
 
 RUN set -eux; \
   mkdir -p /out/seed /out/vendor /tmp/assemble; \
