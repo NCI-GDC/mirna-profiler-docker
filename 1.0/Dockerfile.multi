@@ -33,7 +33,7 @@ RUN set -eux; \
 COPY mirna /src/mirna
 
 RUN set -eux; \
-  mkdir -p /out/usr /out/seed /out/vendor/mysql57 /tmp/assemble /tmp/extract/hg38 /tmp/extract/mirbase; \
+  mkdir -p /out/usr /out/seed /out/vendor /tmp/assemble /tmp/extract/hg38 /tmp/extract/mirbase /tmp/extract/mysql57; \
   cp -a /src/mirna /out/usr/mirna; \
   \
   cat /src/mirna/assets/hg38.tar.gz.part-* > /tmp/assemble/hg38.tar.gz; \
@@ -42,7 +42,7 @@ RUN set -eux; \
   \
   tar -xzf /tmp/assemble/hg38.tar.gz -C /tmp/extract/hg38; \
   tar -xzf /tmp/assemble/mirbase.tar.gz -C /tmp/extract/mirbase; \
-  tar -xzf /tmp/assemble/mysql57.tar.gz -C /out/vendor/mysql57; \
+  tar -xzf /tmp/assemble/mysql57.tar.gz -C /tmp/extract/mysql57; \
   \
   if [ -d /tmp/extract/hg38/hg38 ]; then \
     cp -a /tmp/extract/hg38/hg38 /out/seed/hg38; \
@@ -56,6 +56,16 @@ RUN set -eux; \
   else \
     mkdir -p /out/seed/mirbase; \
     cp -a /tmp/extract/mirbase/. /out/seed/mirbase/; \
+  fi; \
+  \
+  if [ -x /tmp/extract/mysql57/bin/mysqld ]; then \
+    cp -a /tmp/extract/mysql57 /out/vendor/mysql57; \
+  elif [ -x /tmp/extract/mysql57/mysql57/bin/mysqld ]; then \
+    cp -a /tmp/extract/mysql57/mysql57 /out/vendor/mysql57; \
+  else \
+    echo "ERROR: mysqld not found after mysql57 extract"; \
+    find /tmp/extract/mysql57 -maxdepth 4 | sort; \
+    exit 1; \
   fi; \
   \
   test -f /out/seed/hg38/db.opt || test -f /out/seed/hg38/kgXref.frm; \
