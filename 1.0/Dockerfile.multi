@@ -33,32 +33,33 @@ RUN set -eux; \
 COPY mirna /src/mirna
 
 RUN set -eux; \
-  mkdir -p /out/usr /out/seed /out/vendor/mysql57 /tmp/assemble /tmp/extract; \
+  mkdir -p /out/usr /out/seed /out/vendor/mysql57 /tmp/assemble /tmp/extract/hg38 /tmp/extract/mirbase; \
   cp -a /src/mirna /out/usr/mirna; \
+  \
   cat /src/mirna/assets/hg38.tar.gz.part-* > /tmp/assemble/hg38.tar.gz; \
   cat /src/mirna/assets/mirbase.tar.gz.part-* > /tmp/assemble/mirbase.tar.gz; \
   cp -a /src/mirna/assets/mysql57.tar.gz /tmp/assemble/mysql57.tar.gz; \
-  tar -xzf /tmp/assemble/hg38.tar.gz -C /tmp/extract; \
-  tar -xzf /tmp/assemble/mirbase.tar.gz -C /tmp/extract; \
+  \
+  tar -xzf /tmp/assemble/hg38.tar.gz -C /tmp/extract/hg38; \
+  tar -xzf /tmp/assemble/mirbase.tar.gz -C /tmp/extract/mirbase; \
   tar -xzf /tmp/assemble/mysql57.tar.gz -C /out/vendor/mysql57; \
-  if [ -d /tmp/extract/hg38 ]; then \
-    cp -a /tmp/extract/hg38 /out/seed/hg38; \
-  elif [ -d /tmp/extract/seed/hg38 ]; then \
-    cp -a /tmp/extract/seed/hg38 /out/seed/hg38; \
+  \
+  if [ -d /tmp/extract/hg38/hg38 ]; then \
+    cp -a /tmp/extract/hg38/hg38 /out/seed/hg38; \
   else \
-    echo "ERROR: hg38 dir not found after extract"; \
-    find /tmp/extract -maxdepth 3 -type d | sort; \
-    exit 1; \
+    mkdir -p /out/seed/hg38; \
+    cp -a /tmp/extract/hg38/. /out/seed/hg38/; \
   fi; \
-  if [ -d /tmp/extract/mirbase ]; then \
-    cp -a /tmp/extract/mirbase /out/seed/mirbase; \
-  elif [ -d /tmp/extract/seed/mirbase ]; then \
-    cp -a /tmp/extract/seed/mirbase /out/seed/mirbase; \
+  \
+  if [ -d /tmp/extract/mirbase/mirbase ]; then \
+    cp -a /tmp/extract/mirbase/mirbase /out/seed/mirbase; \
   else \
-    echo "ERROR: mirbase dir not found after extract"; \
-    find /tmp/extract -maxdepth 3 -type d | sort; \
-    exit 1; \
+    mkdir -p /out/seed/mirbase; \
+    cp -a /tmp/extract/mirbase/. /out/seed/mirbase/; \
   fi; \
+  \
+  test -f /out/seed/hg38/db.opt || test -f /out/seed/hg38/kgXref.frm; \
+  test -f /out/seed/mirbase/db.opt || test -f /out/seed/mirbase/README; \
   test -x /out/vendor/mysql57/bin/mysqld; \
   rm -rf /tmp/assemble /tmp/extract /out/usr/mirna/assets
 
