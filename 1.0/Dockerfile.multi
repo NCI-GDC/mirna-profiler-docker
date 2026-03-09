@@ -35,42 +35,27 @@ COPY mirna /src/mirna
 RUN set -eux; \
   mkdir -p /out/usr /out/seed /out/vendor /tmp/assemble /tmp/extract/hg38 /tmp/extract/mirbase /tmp/extract/mysql57; \
   cp -a /src/mirna /out/usr/mirna; \
-  \
   cat /src/mirna/assets/hg38.tar.gz.part-* > /tmp/assemble/hg38.tar.gz; \
   cat /src/mirna/assets/mirbase.tar.gz.part-* > /tmp/assemble/mirbase.tar.gz; \
   cp -a /src/mirna/assets/mysql57.tar.gz /tmp/assemble/mysql57.tar.gz; \
-  \
   tar -xzf /tmp/assemble/hg38.tar.gz -C /tmp/extract/hg38; \
   tar -xzf /tmp/assemble/mirbase.tar.gz -C /tmp/extract/mirbase; \
   tar -xzf /tmp/assemble/mysql57.tar.gz -C /tmp/extract/mysql57; \
-  \
   if [ -d /tmp/extract/hg38/hg38 ]; then \
     cp -a /tmp/extract/hg38/hg38 /out/seed/hg38; \
   else \
     mkdir -p /out/seed/hg38; \
     cp -a /tmp/extract/hg38/. /out/seed/hg38/; \
   fi; \
-  \
   if [ -d /tmp/extract/mirbase/mirbase ]; then \
     cp -a /tmp/extract/mirbase/mirbase /out/seed/mirbase; \
   else \
     mkdir -p /out/seed/mirbase; \
     cp -a /tmp/extract/mirbase/. /out/seed/mirbase/; \
   fi; \
-  \
-  if [ -x /tmp/extract/mysql57/bin/mysqld ]; then \
-    cp -a /tmp/extract/mysql57 /out/vendor/mysql57; \
-  elif [ -x /tmp/extract/mysql57/mysql57/bin/mysqld ]; then \
-    cp -a /tmp/extract/mysql57/mysql57 /out/vendor/mysql57; \
-  else \
-    echo "ERROR: mysqld not found after mysql57 extract"; \
-    find /tmp/extract/mysql57 -maxdepth 4 | sort; \
-    exit 1; \
-  fi; \
-  \
-  test -f /out/seed/hg38/db.opt || test -f /out/seed/hg38/kgXref.frm; \
-  test -f /out/seed/mirbase/db.opt || test -f /out/seed/mirbase/README; \
-  test -x /out/vendor/mysql57/bin/mysqld; \
+  cp -a /tmp/extract/mysql57/. /out/vendor/; \
+  echo "== mysql extract tree =="; \
+  find /out/vendor -maxdepth 4 | sort; \
   rm -rf /tmp/assemble /tmp/extract /out/usr/mirna/assets
 
 FROM ${REPOSITORY}/ncigdc/amzn2023:${BUILDER_TAG}
@@ -118,14 +103,27 @@ RUN set -eux; \
 COPY --from=builder /out/usr/mirna /usr/mirna
 COPY --from=builder /out/seed/hg38 /opt/seed/hg38
 COPY --from=builder /out/seed/mirbase /opt/seed/mirbase
-COPY --from=builder /out/vendor/mysql57 /opt/mysql57
+COPY --from=builder /out/vendor /opt/mysql57_raw
 
 RUN set -eux; \
+  mkdir -p /opt/mysql57; \
+  if [ -x /opt/mysql57_raw/bin/mysqld ]; then \
+    cp -a /opt/mysql57_raw/. /opt/mysql57/; \
+  elif [ -x /opt/mysql57_raw/mysql57/bin/mysqld ]; then \
+    cp -a /opt/mysql57_raw/mysql57/. /opt/mysql57/; \
+  else \
+    echo "ERROR: mysqld not found in copied mysql payload"; \
+    find /opt/mysql57_raw -maxdepth 4 | sort; \
+    exit 1; \
+  fi; \
+  test -x /opt/mysql57/bin/mysqld; \
+  test -x /opt/mysql57/bin/mysql_install_db; \
   ln -sf /opt/mysql57/bin/mysqld /usr/sbin/mysqld; \
   ln -sf /opt/mysql57/bin/mysql /usr/bin/mysql; \
   ln -sf /opt/mysql57/bin/mysqladmin /usr/bin/mysqladmin; \
   ln -sf /opt/mysql57/bin/mysql_install_db /usr/bin/mysql_install_db; \
-  ln -sf /opt/mysql57/bin/mysqld_safe /usr/bin/mysqld_safe
+  ln -sf /opt/mysql57/bin/mysqld_safe /usr/bin/mysqld_safe; \
+  rm -rf /opt/mysql57_raw
 
 RUN set -eux; \
   if ! getent group "${mirna_groupid}" >/dev/null; then groupadd -g "${mirna_groupid}" "${mirna_group}"; fi; \
