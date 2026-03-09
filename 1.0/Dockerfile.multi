@@ -129,22 +129,40 @@ RUN set -eux; \
   rm -rf /opt/mysql57_raw
 
 RUN set -eux; \
-  if ! getent group "${mirna_groupid}" >/dev/null; then groupadd -g "${mirna_groupid}" "${mirna_group}"; fi; \
-  if ! getent passwd "${mirna_userid}" >/dev/null; then useradd -m -u "${mirna_userid}" -g "${mirna_groupid}" -s /bin/bash "${mirna_user}"; fi; \
+  if getent group "${mirna_groupid}" >/dev/null; then \
+    existing_group="$(getent group "${mirna_groupid}" | cut -d: -f1)"; \
+    if [ "${existing_group}" != "${mirna_group}" ]; then \
+      groupmod -n "${mirna_group}" "${existing_group}"; \
+    fi; \
+  else \
+    groupadd -g "${mirna_groupid}" "${mirna_group}"; \
+  fi; \
+  \
+  if getent passwd "${mirna_userid}" >/dev/null; then \
+    existing_user="$(getent passwd "${mirna_userid}" | cut -d: -f1)"; \
+    if [ "${existing_user}" != "${mirna_user}" ]; then \
+      usermod -l "${mirna_user}" "${existing_user}"; \
+    fi; \
+    usermod -g "${mirna_groupid}" "${mirna_user}"; \
+  else \
+    useradd -m -u "${mirna_userid}" -g "${mirna_groupid}" -s /bin/bash "${mirna_user}"; \
+  fi; \
+  \
   if ! getent group mysql >/dev/null; then groupadd -r mysql || true; fi; \
   if ! getent passwd mysql >/dev/null; then useradd -r -g mysql -s /sbin/nologin mysql || true; fi; \
+  \
   usermod -aG wheel "${mirna_user}"; \
   echo "${mirna_user} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${mirna_user}; \
   chmod 0440 /etc/sudoers.d/${mirna_user}; \
+  \
   if ! getent group 1000 >/dev/null; then groupadd -g 1000 default; fi; \
   if ! getent passwd 1000 >/dev/null; then \
     useradd -m -u 1000 -g 1000 -s /bin/bash default; \
-    usermod -aG wheel default; \
-    usermod -aG "${mirna_group}" default; \
-    echo "default ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/default; \
-    chmod 0440 /etc/sudoers.d/default; \
-  fi
-
+  fi; \
+  usermod -aG wheel default; \
+  usermod -aG "${mirna_group}" default; \
+  echo "default ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/default; \
+  chmod 0440 /etc/sudoers.d/default
 RUN set -eux; \
   grep -q $'hg38\tlocalhost\troot' /usr/mirna/config/db_connections.cfg || \
     printf "hg38\tlocalhost\troot\t\n" >> /usr/mirna/config/db_connections.cfg; \
