@@ -111,11 +111,14 @@ RUN set -eux; \
     cp -a /opt/mysql57_raw/. /opt/mysql57/; \
   elif [ -x /opt/mysql57_raw/mysql57/bin/mysqld ]; then \
     cp -a /opt/mysql57_raw/mysql57/. /opt/mysql57/; \
+  elif [ -x /opt/mysql57_raw/vendor/mysql57/bin/mysqld ]; then \
+    cp -a /opt/mysql57_raw/vendor/mysql57/. /opt/mysql57/; \
   else \
     echo "ERROR: mysqld not found in copied mysql payload"; \
-    find /opt/mysql57_raw -maxdepth 4 | sort; \
+    find /opt/mysql57_raw -maxdepth 5 | sort; \
     exit 1; \
   fi; \
+  find /opt/mysql57 -name '._*' -delete; \
   test -x /opt/mysql57/bin/mysqld; \
   test -x /opt/mysql57/bin/mysql_install_db; \
   ln -sf /opt/mysql57/bin/mysqld /usr/sbin/mysqld; \
