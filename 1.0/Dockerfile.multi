@@ -54,8 +54,6 @@ RUN set -eux; \
     cp -a /tmp/extract/mirbase/. /out/seed/mirbase/; \
   fi; \
   cp -a /tmp/extract/mysql57/. /out/vendor/; \
-  echo "== mysql extract tree =="; \
-  find /out/vendor -maxdepth 4 | sort; \
   rm -rf /tmp/assemble /tmp/extract /out/usr/mirna/assets
 
 FROM ${REPOSITORY}/ncigdc/amzn2023:${BUILDER_TAG}
@@ -137,7 +135,6 @@ RUN set -eux; \
   else \
     groupadd -g "${mirna_groupid}" "${mirna_group}"; \
   fi; \
-  \
   if getent passwd "${mirna_userid}" >/dev/null; then \
     existing_user="$(getent passwd "${mirna_userid}" | cut -d: -f1)"; \
     if [ "${existing_user}" != "${mirna_user}" ]; then \
@@ -147,14 +144,11 @@ RUN set -eux; \
   else \
     useradd -m -u "${mirna_userid}" -g "${mirna_groupid}" -s /bin/bash "${mirna_user}"; \
   fi; \
-  \
   if ! getent group mysql >/dev/null; then groupadd -r mysql || true; fi; \
   if ! getent passwd mysql >/dev/null; then useradd -r -g mysql -s /sbin/nologin mysql || true; fi; \
-  \
   usermod -aG wheel "${mirna_user}"; \
   echo "${mirna_user} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${mirna_user}; \
   chmod 0440 /etc/sudoers.d/${mirna_user}; \
-  \
   if ! getent group 1000 >/dev/null; then groupadd -g 1000 default; fi; \
   if ! getent passwd 1000 >/dev/null; then \
     useradd -m -u 1000 -g 1000 -s /bin/bash default; \
@@ -163,6 +157,7 @@ RUN set -eux; \
   usermod -aG "${mirna_group}" default; \
   echo "default ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/default; \
   chmod 0440 /etc/sudoers.d/default
+
 RUN set -eux; \
   grep -q $'hg38\tlocalhost\troot' /usr/mirna/config/db_connections.cfg || \
     printf "hg38\tlocalhost\troot\t\n" >> /usr/mirna/config/db_connections.cfg; \
@@ -180,6 +175,18 @@ RUN set -eux; \
   cp -a /opt/seed/mirbase /var/lib/mysql/mirbase; \
   chown -R mysql:mysql /var/lib/mysql/hg38 /var/lib/mysql/mirbase; \
   rm -rf /opt/seed
+
+# Make image usable under arbitrary runtime UID like 401:401
+RUN set -eux; \
+  mkdir -p /var/lib/mysql /var/run/mysqld /tmp; \
+  chmod 1777 /tmp; \
+  chmod -R a+rwX /var/lib/mysql /var/run/mysqld; \
+  find /var/lib/mysql -name '._*' -delete || true; \
+  find /opt/mysql57 -name '._*' -delete || true; \
+  find /opt/mysql57 -type d -exec chmod a+rx {} \; ; \
+  find /opt/mysql57 -type f -exec chmod a+r {} \; ; \
+  chmod a+rx /opt/mysql57/bin/* || true; \
+  chmod a+rx /usr/sbin/mysqld /usr/bin/mysql /usr/bin/mysqladmin /usr/bin/mysql_install_db /usr/bin/mysqld_safe || true
 
 RUN set -eux; \
   ldd /usr/sbin/mysqld | head -n 50
