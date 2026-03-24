@@ -128,10 +128,12 @@ RUN set -eux; \
   ln -sf /opt/mysql57/bin/mysqld_safe /usr/bin/mysqld_safe; \
   rm -rf /opt/mysql57_raw
 
-# Critical fix: legacy MySQL expects language / support files here
 RUN set -eux; \
   mkdir -p /usr/share/mysql; \
   cp -a /opt/mysql57/share/mysql/. /usr/share/mysql/; \
+  if [ ! -f /usr/share/mysql/errmsg.sys ] && [ -f /usr/share/mysql/english/errmsg.sys ]; then \
+    ln -sf /usr/share/mysql/english/errmsg.sys /usr/share/mysql/errmsg.sys; \
+  fi; \
   test -f /usr/share/mysql/errmsg.sys
 
 RUN set -eux; \
