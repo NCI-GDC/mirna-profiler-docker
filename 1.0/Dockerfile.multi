@@ -175,28 +175,24 @@ RUN set -eux; \
     printf "mirbase\tlocalhost\troot\t\n" >> /usr/mirna/config/db_connections.cfg; \
   chown -R "${mirna_user}.${mirna_group}" /usr/mirna
 
-# Seed reference DB dirs only; system mysql DB will be created at runtime
+# Initialize full MySQL datadir at build time, then add seeded DBs
 RUN set -eux; \
-  mkdir -p /var/lib/mysql-seed; \
-  cp -a /opt/seed/hg38 /var/lib/mysql-seed/hg38; \
-  cp -a /opt/seed/mirbase /var/lib/mysql-seed/mirbase; \
+  rm -rf /var/lib/mysql /var/run/mysqld /var/lib/mysql-files; \
+  mkdir -p /var/lib/mysql /var/run/mysqld /var/lib/mysql-files; \
+  mysql_install_db --datadir=/var/lib/mysql --basedir=/opt/mysql57; \
+  test -f /var/lib/mysql/mysql/user.frm; \
+  test -f /var/lib/mysql/mysql/plugin.frm; \
+  cp -a /opt/seed/hg38 /var/lib/mysql/hg38; \
+  cp -a /opt/seed/mirbase /var/lib/mysql/mirbase; \
   rm -rf /opt/seed
 
-# Arbitrary-UID-safe MySQL + runtime dirs (FIXED)
+# Arbitrary-UID-safe permissions
 RUN set -eux; \
-  mkdir -p \
-    /var/run/mysqld \
-    /var/lib/mysql \
-    /var/lib/mysql-files \
-    /var/lib/mysql-seed \
-    /tmp; \
+  mkdir -p /var/run/mysqld /var/lib/mysql /var/lib/mysql-files /tmp; \
   chmod 1777 /tmp; \
   chmod 0777 /var/run/mysqld /var/lib/mysql /var/lib/mysql-files; \
   find /var/lib/mysql -type d -exec chmod 0777 {} \; || true; \
   find /var/lib/mysql -type f -exec chmod 0666 {} \; || true; \
-  find /var/lib/mysql-seed -type d -exec chmod 0777 {} \; || true; \
-  find /var/lib/mysql-seed -type f -exec chmod 0666 {} \; || true; \
-  find /var/lib/mysql -name '._*' -delete || true; \
   find /opt/mysql57 -name '._*' -delete || true; \
   find /opt/mysql57 -type d -exec chmod a+rx {} \; ; \
   find /opt/mysql57 -type f -exec chmod a+r {} \; ; \
