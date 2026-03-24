@@ -128,6 +128,12 @@ RUN set -eux; \
   ln -sf /opt/mysql57/bin/mysqld_safe /usr/bin/mysqld_safe; \
   rm -rf /opt/mysql57_raw
 
+# Critical fix: legacy MySQL expects language / support files here
+RUN set -eux; \
+  mkdir -p /usr/share/mysql; \
+  cp -a /opt/mysql57/share/mysql/. /usr/share/mysql/; \
+  test -f /usr/share/mysql/errmsg.sys
+
 RUN set -eux; \
   if getent group "${mirna_groupid}" >/dev/null; then \
     existing_group="$(getent group "${mirna_groupid}" | cut -d: -f1)"; \
@@ -167,22 +173,18 @@ RUN set -eux; \
     printf "mirbase\tlocalhost\troot\t\n" >> /usr/mirna/config/db_connections.cfg; \
   chown -R "${mirna_user}.${mirna_group}" /usr/mirna
 
+# Seed reference DB dirs only; system mysql DB will be created at runtime
 RUN set -eux; \
-  mkdir -p /var/lib/mysql /var/run/mysqld /var/lib/mysql-files; \
-  chown -R mysql:mysql /var/lib/mysql /var/run/mysqld /var/lib/mysql-files; \
-  mysql_install_db --user=mysql --datadir=/var/lib/mysql --basedir=/opt/mysql57 || \
-  mysql_install_db --user=mysql --datadir=/var/lib/mysql || true; \
-  rm -rf /var/lib/mysql/hg38 /var/lib/mysql/mirbase; \
-  cp -a /opt/seed/hg38 /var/lib/mysql/hg38; \
-  cp -a /opt/seed/mirbase /var/lib/mysql/mirbase; \
-  chown -R mysql:mysql /var/lib/mysql/hg38 /var/lib/mysql/mirbase; \
+  mkdir -p /var/lib/mysql-seed; \
+  cp -a /opt/seed/hg38 /var/lib/mysql-seed/hg38; \
+  cp -a /opt/seed/mirbase /var/lib/mysql-seed/mirbase; \
   rm -rf /opt/seed
 
-# Make image usable under fixed arbitrary runtime UID like 401:401
+# Arbitrary-UID-friendly permissions
 RUN set -eux; \
   mkdir -p /var/lib/mysql /var/run/mysqld /var/lib/mysql-files /tmp; \
   chmod 1777 /tmp; \
-  chmod -R a+rwX /var/lib/mysql /var/run/mysqld /var/lib/mysql-files; \
+  chmod -R a+rwX /var/lib/mysql /var/run/mysqld /var/lib/mysql-files /var/lib/mysql-seed; \
   find /var/lib/mysql -name '._*' -delete || true; \
   find /opt/mysql57 -name '._*' -delete || true; \
   find /opt/mysql57 -type d -exec chmod a+rx {} \; ; \
