@@ -182,11 +182,20 @@ RUN set -eux; \
   cp -a /opt/seed/mirbase /var/lib/mysql-seed/mirbase; \
   rm -rf /opt/seed
 
-# Arbitrary-UID-friendly permissions
+# Arbitrary-UID-safe MySQL + runtime dirs (FIXED)
 RUN set -eux; \
-  mkdir -p /var/lib/mysql /var/run/mysqld /var/lib/mysql-files /tmp; \
+  mkdir -p \
+    /var/run/mysqld \
+    /var/lib/mysql \
+    /var/lib/mysql-files \
+    /var/lib/mysql-seed \
+    /tmp; \
   chmod 1777 /tmp; \
-  chmod -R a+rwX /var/lib/mysql /var/run/mysqld /var/lib/mysql-files /var/lib/mysql-seed; \
+  chmod 0777 /var/run/mysqld /var/lib/mysql /var/lib/mysql-files; \
+  find /var/lib/mysql -type d -exec chmod 0777 {} \; || true; \
+  find /var/lib/mysql -type f -exec chmod 0666 {} \; || true; \
+  find /var/lib/mysql-seed -type d -exec chmod 0777 {} \; || true; \
+  find /var/lib/mysql-seed -type f -exec chmod 0666 {} \; || true; \
   find /var/lib/mysql -name '._*' -delete || true; \
   find /opt/mysql57 -name '._*' -delete || true; \
   find /opt/mysql57 -type d -exec chmod a+rx {} \; ; \
