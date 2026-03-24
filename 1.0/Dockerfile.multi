@@ -179,7 +179,10 @@ RUN set -eux; \
 RUN set -eux; \
   rm -rf /var/lib/mysql /var/run/mysqld /var/lib/mysql-files; \
   mkdir -p /var/lib/mysql /var/run/mysqld /var/lib/mysql-files; \
-  mysql_install_db --datadir=/var/lib/mysql --basedir=/opt/mysql57; \
+  /usr/sbin/mysqld \
+    --initialize-insecure \
+    --datadir=/var/lib/mysql \
+    --basedir=/opt/mysql57; \
   test -f /var/lib/mysql/mysql/user.frm; \
   test -f /var/lib/mysql/mysql/plugin.frm; \
   cp -a /opt/seed/hg38 /var/lib/mysql/hg38; \
