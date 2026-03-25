@@ -1,0 +1,208 @@
+ARG REPOSITORY=docker.osdc.io
+ARG BUILDER_TAG=3.1.0
+
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+ARG http_proxy
+ARG https_proxy
+ARG no_proxy
+
+FROM ${REPOSITORY}/ncigdc/amzn2023-builder:${BUILDER_TAG} AS builder
+
+ARG VERSION
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+ARG http_proxy
+ARG https_proxy
+ARG no_proxy
+
+ENV HTTP_PROXY=${HTTP_PROXY} \
+    HTTPS_PROXY=${HTTPS_PROXY} \
+    NO_PROXY=${NO_PROXY} \
+    http_proxy=${http_proxy} \
+    https_proxy=${https_proxy} \
+    no_proxy=${no_proxy}
+
+RUN set -eux; \
+  dnf -y makecache --refresh; \
+  dnf -y install tar gzip xz findutils ca-certificates; \
+  dnf clean all
+
+COPY mirna /src/mirna
+
+RUN set -eux; \
+  mkdir -p /out/usr /out/seed /out/vendor /tmp/assemble /tmp/extract/hg38 /tmp/extract/mirbase /tmp/extract/mysql57; \
+  cp -a /src/mirna /out/usr/mirna; \
+  cat /src/mirna/assets/hg38.tar.gz.part-* > /tmp/assemble/hg38.tar.gz; \
+  cat /src/mirna/assets/mirbase.tar.gz.part-* > /tmp/assemble/mirbase.tar.gz; \
+  cp -a /src/mirna/assets/mysql57.tar.gz /tmp/assemble/mysql57.tar.gz; \
+  tar -xzf /tmp/assemble/hg38.tar.gz -C /tmp/extract/hg38; \
+  tar -xzf /tmp/assemble/mirbase.tar.gz -C /tmp/extract/mirbase; \
+  tar -xzf /tmp/assemble/mysql57.tar.gz -C /tmp/extract/mysql57; \
+  if [ -d /tmp/extract/hg38/hg38 ]; then \
+    cp -a /tmp/extract/hg38/hg38 /out/seed/hg38; \
+  else \
+    mkdir -p /out/seed/hg38; \
+    cp -a /tmp/extract/hg38/. /out/seed/hg38/; \
+  fi; \
+  if [ -d /tmp/extract/mirbase/mirbase ]; then \
+    cp -a /tmp/extract/mirbase/mirbase /out/seed/mirbase; \
+  else \
+    mkdir -p /out/seed/mirbase; \
+    cp -a /tmp/extract/mirbase/. /out/seed/mirbase/; \
+  fi; \
+  cp -a /tmp/extract/mysql57/. /out/vendor/; \
+  rm -rf /tmp/assemble /tmp/extract /out/usr/mirna/assets
+
+FROM ${REPOSITORY}/ncigdc/amzn2023:${BUILDER_TAG}
+
+ARG VERSION
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+ARG http_proxy
+ARG https_proxy
+ARG no_proxy
+
+ENV HTTP_PROXY=${HTTP_PROXY} \
+    HTTPS_PROXY=${HTTPS_PROXY} \
+    NO_PROXY=${NO_PROXY} \
+    http_proxy=${http_proxy} \
+    https_proxy=${https_proxy} \
+    no_proxy=${no_proxy}
+
+ENV mirna_profiler=0.2.8gdc
+ENV mirna_userid=33
+ENV mirna_user=ubuntu
+ENV mirna_groupid=33
+ENV mirna_group=ubuntu
+ENV MYSQL57_HOME=/opt/mysql57
+ENV PATH=/opt/mysql57/bin:${PATH}
+ENV LD_LIBRARY_PATH=/opt/mysql57/lib
+
+RUN set -eux; \
+  dnf -y makecache --refresh; \
+  dnf -y install \
+    sudo \
+    shadow-utils \
+    findutils \
+    gzip \
+    tar \
+    ca-certificates \
+    perl \
+    perl-DBI; \
+  (dnf -y install vim-enhanced || dnf -y install vim || dnf -y install vim-minimal || true); \
+  (dnf -y install perl-DBD-MySQL || dnf -y install perl-DBD-MariaDB || true); \
+  (dnf -y install R || dnf -y install R-core || true); \
+  dnf clean all
+
+COPY --from=builder /out/usr/mirna /usr/mirna
+COPY --from=builder /out/seed/hg38 /opt/seed/hg38
+COPY --from=builder /out/seed/mirbase /opt/seed/mirbase
+COPY --from=builder /out/vendor /opt/mysql57_raw
+
+RUN set -eux; \
+  mkdir -p /opt/mysql57; \
+  src=""; \
+  for d in /opt/mysql57_raw /opt/mysql57_raw/* /opt/mysql57_raw/*/*; do \
+    if [ -x "$d/bin/mysqld" ]; then \
+      src="$d"; \
+      break; \
+    fi; \
+  done; \
+  if [ -z "$src" ]; then \
+    echo "ERROR: mysqld not found in copied mysql payload"; \
+    find /opt/mysql57_raw -maxdepth 5 | sort; \
+    exit 1; \
+  fi; \
+  cp -a "$src"/. /opt/mysql57/; \
+  find /opt/mysql57 -name '._*' -delete; \
+  test -x /opt/mysql57/bin/mysqld; \
+  test -x /opt/mysql57/bin/mysql_install_db; \
+  ln -sf /opt/mysql57/bin/mysqld /usr/sbin/mysqld; \
+  ln -sf /opt/mysql57/bin/mysql /usr/bin/mysql; \
+  ln -sf /opt/mysql57/bin/mysqladmin /usr/bin/mysqladmin; \
+  ln -sf /opt/mysql57/bin/mysql_install_db /usr/bin/mysql_install_db; \
+  ln -sf /opt/mysql57/bin/mysqld_safe /usr/bin/mysqld_safe; \
+  rm -rf /opt/mysql57_raw
+
+RUN set -eux; \
+  mkdir -p /usr/share/mysql; \
+  cp -a /opt/mysql57/share/mysql/. /usr/share/mysql/; \
+  if [ ! -f /usr/share/mysql/errmsg.sys ] && [ -f /usr/share/mysql/english/errmsg.sys ]; then \
+    ln -sf /usr/share/mysql/english/errmsg.sys /usr/share/mysql/errmsg.sys; \
+  fi; \
+  test -f /usr/share/mysql/errmsg.sys
+
+RUN set -eux; \
+  if getent group "${mirna_groupid}" >/dev/null; then \
+    existing_group="$(getent group "${mirna_groupid}" | cut -d: -f1)"; \
+    if [ "${existing_group}" != "${mirna_group}" ]; then \
+      groupmod -n "${mirna_group}" "${existing_group}"; \
+    fi; \
+  else \
+    groupadd -g "${mirna_groupid}" "${mirna_group}"; \
+  fi; \
+  if getent passwd "${mirna_userid}" >/dev/null; then \
+    existing_user="$(getent passwd "${mirna_userid}" | cut -d: -f1)"; \
+    if [ "${existing_user}" != "${mirna_user}" ]; then \
+      usermod -l "${mirna_user}" "${existing_user}"; \
+    fi; \
+    usermod -g "${mirna_groupid}" "${mirna_user}"; \
+  else \
+    useradd -m -u "${mirna_userid}" -g "${mirna_groupid}" -s /bin/bash "${mirna_user}"; \
+  fi; \
+  if ! getent group mysql >/dev/null; then groupadd -r mysql || true; fi; \
+  if ! getent passwd mysql >/dev/null; then useradd -r -g mysql -s /sbin/nologin mysql || true; fi; \
+  usermod -aG wheel "${mirna_user}"; \
+  echo "${mirna_user} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${mirna_user}; \
+  chmod 0440 /etc/sudoers.d/${mirna_user}; \
+  if ! getent group 1000 >/dev/null; then groupadd -g 1000 default; fi; \
+  if ! getent passwd 1000 >/dev/null; then \
+    useradd -m -u 1000 -g 1000 -s /bin/bash default; \
+  fi; \
+  usermod -aG wheel default; \
+  usermod -aG "${mirna_group}" default; \
+  echo "default ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/default; \
+  chmod 0440 /etc/sudoers.d/default
+
+RUN set -eux; \
+  grep -q $'hg38\tlocalhost\troot' /usr/mirna/config/db_connections.cfg || \
+    printf "hg38\tlocalhost\troot\t\n" >> /usr/mirna/config/db_connections.cfg; \
+  grep -q $'mirbase\tlocalhost\troot' /usr/mirna/config/db_connections.cfg || \
+    printf "mirbase\tlocalhost\troot\t\n" >> /usr/mirna/config/db_connections.cfg; \
+  chown -R "${mirna_user}.${mirna_group}" /usr/mirna
+
+# Initialize full MySQL datadir at build time, then add seeded DBs
+RUN set -eux; \
+  rm -rf /var/lib/mysql /var/run/mysqld /var/lib/mysql-files; \
+  mkdir -p /var/lib/mysql /var/run/mysqld /var/lib/mysql-files; \
+  /usr/sbin/mysqld \
+    --initialize-insecure \
+    --datadir=/var/lib/mysql \
+    --basedir=/opt/mysql57; \
+  test -f /var/lib/mysql/mysql/user.frm; \
+  test -f /var/lib/mysql/mysql/plugin.frm; \
+  cp -a /opt/seed/hg38 /var/lib/mysql/hg38; \
+  cp -a /opt/seed/mirbase /var/lib/mysql/mirbase; \
+  rm -rf /opt/seed
+
+# Arbitrary-UID-safe permissions
+RUN set -eux; \
+  mkdir -p /var/run/mysqld /var/lib/mysql /var/lib/mysql-files /tmp; \
+  chmod 1777 /tmp; \
+  chmod 0777 /var/run/mysqld /var/lib/mysql /var/lib/mysql-files; \
+  find /var/lib/mysql -type d -exec chmod 0777 {} \; || true; \
+  find /var/lib/mysql -type f -exec chmod 0666 {} \; || true; \
+  find /opt/mysql57 -name '._*' -delete || true; \
+  find /opt/mysql57 -type d -exec chmod a+rx {} \; ; \
+  find /opt/mysql57 -type f -exec chmod a+r {} \; ; \
+  chmod a+rx /opt/mysql57/bin/* || true; \
+  chmod a+rx /usr/sbin/mysqld /usr/bin/mysql /usr/bin/mysqladmin /usr/bin/mysql_install_db /usr/bin/mysqld_safe || true
+
+RUN set -eux; \
+  ldd /usr/sbin/mysqld | head -n 50
+
+WORKDIR /usr/mirna
