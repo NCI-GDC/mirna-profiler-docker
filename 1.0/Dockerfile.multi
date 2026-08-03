@@ -1,4 +1,13 @@
-ARG REPOSITORY=docker.osdc.io
+# syntax=docker/dockerfile:1.7
+
+################################################################################
+# Global build arguments
+################################################################################
+
+# The existing root build.sh passes REGISTRY rather than REPOSITORY.
+# REPOSITORY defaults to REGISTRY so both forms remain supported.
+ARG REGISTRY=docker.osdc.io
+ARG REPOSITORY=${REGISTRY}
 ARG BUILDER_TAG=3.1.0
 
 ARG HTTP_PROXY
@@ -7,6 +16,14 @@ ARG NO_PROXY
 ARG http_proxy
 ARG https_proxy
 ARG no_proxy
+
+
+################################################################################
+# Builder stage
+#
+# Reassembles the Git-safe SQL dump chunks and extracts the exact /usr/mirna
+# application tree captured from the legacy image.
+################################################################################
 
 FROM ${REPOSITORY}/ncigdc/amzn2023-builder:${BUILDER_TAG} AS builder
 
@@ -26,35 +43,70 @@ ENV HTTP_PROXY=${HTTP_PROXY} \
     no_proxy=${no_proxy}
 
 RUN set -eux; \
-  dnf -y makecache --refresh; \
-  dnf -y install tar gzip xz findutils ca-certificates; \
-  dnf clean all
+    dnf -y makecache --refresh; \
+    dnf -y install \
+        ca-certificates \
+        findutils \
+        gzip \
+        tar; \
+    dnf clean all; \
+    rm -rf /var/cache/dnf
 
-COPY mirna /src/mirna
+# mirna.tar.gz is small enough to remain as one Git object.
+COPY mirna/assets/mirna.tar.gz /tmp/assets/mirna.tar.gz
+
+# The SQL dumps are split into Git-safe pieces.
+COPY mirna/assets/hg38.sql.gz.part-* /tmp/assets/
+COPY mirna/assets/mirbase.sql.gz.part-* /tmp/assets/
 
 RUN set -eux; \
-  mkdir -p /out/usr /out/seed /out/vendor /tmp/assemble /tmp/extract/hg38 /tmp/extract/mirbase /tmp/extract/mysql57; \
-  cp -a /src/mirna /out/usr/mirna; \
-  cat /src/mirna/assets/hg38.tar.gz.part-* > /tmp/assemble/hg38.tar.gz; \
-  cat /src/mirna/assets/mirbase.tar.gz.part-* > /tmp/assemble/mirbase.tar.gz; \
-  cp -a /src/mirna/assets/mysql57.tar.gz /tmp/assemble/mysql57.tar.gz; \
-  tar -xzf /tmp/assemble/hg38.tar.gz -C /tmp/extract/hg38; \
-  tar -xzf /tmp/assemble/mirbase.tar.gz -C /tmp/extract/mirbase; \
-  tar -xzf /tmp/assemble/mysql57.tar.gz -C /tmp/extract/mysql57; \
-  if [ -d /tmp/extract/hg38/hg38 ]; then \
-    cp -a /tmp/extract/hg38/hg38 /out/seed/hg38; \
-  else \
-    mkdir -p /out/seed/hg38; \
-    cp -a /tmp/extract/hg38/. /out/seed/hg38/; \
-  fi; \
-  if [ -d /tmp/extract/mirbase/mirbase ]; then \
-    cp -a /tmp/extract/mirbase/mirbase /out/seed/mirbase; \
-  else \
-    mkdir -p /out/seed/mirbase; \
-    cp -a /tmp/extract/mirbase/. /out/seed/mirbase/; \
-  fi; \
-  cp -a /tmp/extract/mysql57/. /out/vendor/; \
-  rm -rf /tmp/assemble /tmp/extract /out/usr/mirna/assets
+    mkdir -p \
+        /out/usr \
+        /out/database-dumps \
+        /tmp/assembled; \
+    \
+    test -s /tmp/assets/mirna.tar.gz; \
+    \
+    hg38_parts="$(find /tmp/assets -maxdepth 1 \
+        -name 'hg38.sql.gz.part-*' -type f | sort)"; \
+    mirbase_parts="$(find /tmp/assets -maxdepth 1 \
+        -name 'mirbase.sql.gz.part-*' -type f | sort)"; \
+    \
+    test -n "${hg38_parts}"; \
+    test -n "${mirbase_parts}"; \
+    \
+    cat ${hg38_parts} > /tmp/assembled/hg38.sql.gz; \
+    cat ${mirbase_parts} > /tmp/assembled/mirbase.sql.gz; \
+    \
+    gzip -t /tmp/assets/mirna.tar.gz; \
+    gzip -t /tmp/assembled/hg38.sql.gz; \
+    gzip -t /tmp/assembled/mirbase.sql.gz; \
+    \
+    tar -xzf /tmp/assets/mirna.tar.gz -C /out/usr; \
+    \
+    test -d /out/usr/mirna; \
+    test -d /out/usr/mirna/code; \
+    test -d /out/usr/mirna/config; \
+    test -f /out/usr/mirna/config/db_connections.cfg; \
+    \
+    grep -q $'^hg38\tlocalhost\troot' \
+        /out/usr/mirna/config/db_connections.cfg; \
+    grep -q $'^mirbase\tlocalhost\troot' \
+        /out/usr/mirna/config/db_connections.cfg; \
+    \
+    cp -a \
+        /tmp/assembled/hg38.sql.gz \
+        /out/database-dumps/hg38.sql.gz; \
+    cp -a \
+        /tmp/assembled/mirbase.sql.gz \
+        /out/database-dumps/mirbase.sql.gz; \
+    \
+    rm -rf /tmp/assets /tmp/assembled
+
+
+################################################################################
+# Runtime stage
+################################################################################
 
 FROM ${REPOSITORY}/ncigdc/amzn2023:${BUILDER_TAG}
 
@@ -73,136 +125,471 @@ ENV HTTP_PROXY=${HTTP_PROXY} \
     https_proxy=${https_proxy} \
     no_proxy=${no_proxy}
 
-ENV mirna_profiler=0.2.8gdc
-ENV mirna_userid=33
-ENV mirna_user=ubuntu
-ENV mirna_groupid=33
-ENV mirna_group=ubuntu
-ENV MYSQL57_HOME=/opt/mysql57
-ENV PATH=/opt/mysql57/bin:${PATH}
-ENV LD_LIBRARY_PATH=/opt/mysql57/lib
+ENV MIRNA_PROFILER_VERSION=${VERSION} \
+    mirna_profiler=0.2.8gdc \
+    mirna_userid=33 \
+    mirna_user=ubuntu \
+    mirna_groupid=33 \
+    mirna_group=ubuntu \
+    MYSQL_DATADIR=/var/lib/mysql \
+    MYSQL_SOCKET=/var/lib/mysql/mysql.sock \
+    MYSQL_PID_FILE=/run/mariadb/mariadb.pid \
+    PATH=/usr/mirna/code/annotation:/usr/mirna/code/custom_output/tcga:/usr/mirna/code/library_stats:/usr/local/bin:${PATH}
+
+USER root
+
+
+################################################################################
+# Runtime dependencies
+#
+# These package names resolved successfully against the pinned Amazon Linux
+# repositories associated with amzn2023-builder:3.1.0.
+################################################################################
 
 RUN set -eux; \
-  dnf -y makecache --refresh; \
-  dnf -y install \
-    sudo \
-    shadow-utils \
-    findutils \
-    gzip \
-    tar \
-    ca-certificates \
-    perl \
-    perl-DBI; \
-  (dnf -y install vim-enhanced || dnf -y install vim || dnf -y install vim-minimal || true); \
-  (dnf -y install perl-DBD-MySQL || dnf -y install perl-DBD-MariaDB || true); \
-  (dnf -y install R || dnf -y install R-core || true); \
-  dnf clean all
+    dnf -y makecache --refresh; \
+    dnf -y install \
+        ca-certificates \
+        findutils \
+        git \
+        gzip \
+        hostname \
+        mariadb105 \
+        mariadb105-server \
+        perl \
+        perl-DBD-MySQL \
+        perl-DBI \
+        procps-ng \
+        psmisc \
+        R \
+        shadow-utils \
+        sudo \
+        tar \
+        wget; \
+    \
+    if ! command -v vim >/dev/null 2>&1; then \
+        dnf -y install vim-enhanced || \
+        dnf -y install vim || \
+        dnf -y install vim-minimal || true; \
+    fi; \
+    \
+    dnf clean all; \
+    rm -rf /var/cache/dnf
+
+
+################################################################################
+# Copy exact preserved application and database dumps
+################################################################################
 
 COPY --from=builder /out/usr/mirna /usr/mirna
-COPY --from=builder /out/seed/hg38 /opt/seed/hg38
-COPY --from=builder /out/seed/mirbase /opt/seed/mirbase
-COPY --from=builder /out/vendor /opt/mysql57_raw
+COPY --from=builder /out/database-dumps /opt/mirna/database-dumps
+
+
+################################################################################
+# MySQL-compatible command names
+#
+# Amazon Linux installs MariaDB commands. Create legacy MySQL command aliases
+# when the package does not already provide them.
+################################################################################
 
 RUN set -eux; \
-  mkdir -p /opt/mysql57; \
-  src=""; \
-  for d in /opt/mysql57_raw /opt/mysql57_raw/* /opt/mysql57_raw/*/*; do \
-    if [ -x "$d/bin/mysqld" ]; then \
-      src="$d"; \
-      break; \
+    if ! command -v mysql >/dev/null 2>&1; then \
+        ln -s "$(command -v mariadb)" /usr/local/bin/mysql; \
     fi; \
-  done; \
-  if [ -z "$src" ]; then \
-    echo "ERROR: mysqld not found in copied mysql payload"; \
-    find /opt/mysql57_raw -maxdepth 5 | sort; \
-    exit 1; \
-  fi; \
-  cp -a "$src"/. /opt/mysql57/; \
-  find /opt/mysql57 -name '._*' -delete; \
-  test -x /opt/mysql57/bin/mysqld; \
-  test -x /opt/mysql57/bin/mysql_install_db; \
-  ln -sf /opt/mysql57/bin/mysqld /usr/sbin/mysqld; \
-  ln -sf /opt/mysql57/bin/mysql /usr/bin/mysql; \
-  ln -sf /opt/mysql57/bin/mysqladmin /usr/bin/mysqladmin; \
-  ln -sf /opt/mysql57/bin/mysql_install_db /usr/bin/mysql_install_db; \
-  ln -sf /opt/mysql57/bin/mysqld_safe /usr/bin/mysqld_safe; \
-  rm -rf /opt/mysql57_raw
-
-RUN set -eux; \
-  mkdir -p /usr/share/mysql; \
-  cp -a /opt/mysql57/share/mysql/. /usr/share/mysql/; \
-  if [ ! -f /usr/share/mysql/errmsg.sys ] && [ -f /usr/share/mysql/english/errmsg.sys ]; then \
-    ln -sf /usr/share/mysql/english/errmsg.sys /usr/share/mysql/errmsg.sys; \
-  fi; \
-  test -f /usr/share/mysql/errmsg.sys
-
-RUN set -eux; \
-  if getent group "${mirna_groupid}" >/dev/null; then \
-    existing_group="$(getent group "${mirna_groupid}" | cut -d: -f1)"; \
-    if [ "${existing_group}" != "${mirna_group}" ]; then \
-      groupmod -n "${mirna_group}" "${existing_group}"; \
+    \
+    if ! command -v mysqladmin >/dev/null 2>&1; then \
+        ln -s "$(command -v mariadb-admin)" /usr/local/bin/mysqladmin; \
     fi; \
-  else \
-    groupadd -g "${mirna_groupid}" "${mirna_group}"; \
-  fi; \
-  if getent passwd "${mirna_userid}" >/dev/null; then \
-    existing_user="$(getent passwd "${mirna_userid}" | cut -d: -f1)"; \
-    if [ "${existing_user}" != "${mirna_user}" ]; then \
-      usermod -l "${mirna_user}" "${existing_user}"; \
+    \
+    if ! command -v mysqldump >/dev/null 2>&1; then \
+        ln -s "$(command -v mariadb-dump)" /usr/local/bin/mysqldump; \
     fi; \
-    usermod -g "${mirna_groupid}" "${mirna_user}"; \
-  else \
-    useradd -m -u "${mirna_userid}" -g "${mirna_groupid}" -s /bin/bash "${mirna_user}"; \
-  fi; \
-  if ! getent group mysql >/dev/null; then groupadd -r mysql || true; fi; \
-  if ! getent passwd mysql >/dev/null; then useradd -r -g mysql -s /sbin/nologin mysql || true; fi; \
-  usermod -aG wheel "${mirna_user}"; \
-  echo "${mirna_user} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${mirna_user}; \
-  chmod 0440 /etc/sudoers.d/${mirna_user}; \
-  if ! getent group 1000 >/dev/null; then groupadd -g 1000 default; fi; \
-  if ! getent passwd 1000 >/dev/null; then \
-    useradd -m -u 1000 -g 1000 -s /bin/bash default; \
-  fi; \
-  usermod -aG wheel default; \
-  usermod -aG "${mirna_group}" default; \
-  echo "default ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/default; \
-  chmod 0440 /etc/sudoers.d/default
+    \
+    if ! command -v mysqld >/dev/null 2>&1; then \
+        ln -s "$(command -v mariadbd)" /usr/local/sbin/mysqld; \
+    fi; \
+    \
+    command -v mariadb; \
+    command -v mariadb-admin; \
+    command -v mariadb-dump; \
+    command -v mariadbd; \
+    command -v mysql; \
+    command -v mysqladmin; \
+    command -v mysqldump; \
+    command -v mysqld
+
+
+################################################################################
+# Preserve legacy user and group behavior
+#
+# Legacy image:
+#   ubuntu UID/GID 33
+#   default UID/GID 1000
+################################################################################
 
 RUN set -eux; \
-  grep -q $'hg38\tlocalhost\troot' /usr/mirna/config/db_connections.cfg || \
-    printf "hg38\tlocalhost\troot\t\n" >> /usr/mirna/config/db_connections.cfg; \
-  grep -q $'mirbase\tlocalhost\troot' /usr/mirna/config/db_connections.cfg || \
-    printf "mirbase\tlocalhost\troot\t\n" >> /usr/mirna/config/db_connections.cfg; \
-  chown -R "${mirna_user}.${mirna_group}" /usr/mirna
+    \
+    existing_group="$(getent group "${mirna_groupid}" \
+        | cut -d: -f1 || true)"; \
+    \
+    if [ -n "${existing_group}" ]; then \
+        if [ "${existing_group}" != "${mirna_group}" ]; then \
+            groupmod --new-name "${mirna_group}" "${existing_group}"; \
+        fi; \
+    elif ! getent group "${mirna_group}" >/dev/null 2>&1; then \
+        groupadd \
+            --gid "${mirna_groupid}" \
+            "${mirna_group}"; \
+    fi; \
+    \
+    existing_user="$(getent passwd "${mirna_userid}" \
+        | cut -d: -f1 || true)"; \
+    \
+    if [ -n "${existing_user}" ]; then \
+        if [ "${existing_user}" != "${mirna_user}" ]; then \
+            usermod \
+                --login "${mirna_user}" \
+                "${existing_user}"; \
+        fi; \
+        \
+        usermod \
+            --gid "${mirna_groupid}" \
+            "${mirna_user}"; \
+        \
+        mkdir -p "/home/${mirna_user}"; \
+        chown "${mirna_userid}:${mirna_groupid}" \
+            "/home/${mirna_user}"; \
+    elif ! getent passwd "${mirna_user}" >/dev/null 2>&1; then \
+        useradd \
+            --uid "${mirna_userid}" \
+            --gid "${mirna_groupid}" \
+            --create-home \
+            --shell /bin/bash \
+            "${mirna_user}"; \
+    fi; \
+    \
+    usermod \
+        --append \
+        --groups wheel \
+        "${mirna_user}"; \
+    \
+    printf '%s ALL=(ALL) NOPASSWD:ALL\n' "${mirna_user}" \
+        > "/etc/sudoers.d/${mirna_user}"; \
+    chmod 0440 "/etc/sudoers.d/${mirna_user}"; \
+    \
+    if ! getent group 1000 >/dev/null 2>&1; then \
+        groupadd \
+            --gid 1000 \
+            default; \
+    fi; \
+    \
+    if ! getent passwd 1000 >/dev/null 2>&1; then \
+        useradd \
+            --uid 1000 \
+            --gid 1000 \
+            --create-home \
+            --shell /bin/bash \
+            default; \
+    fi; \
+    \
+    usermod \
+        --append \
+        --groups wheel,"${mirna_group}" \
+        default; \
+    \
+    printf 'default ALL=(ALL) NOPASSWD:ALL\n' \
+        > /etc/sudoers.d/default; \
+    chmod 0440 /etc/sudoers.d/default
 
-# Initialize full MySQL datadir at build time, then add seeded DBs
-RUN set -eux; \
-  rm -rf /var/lib/mysql /var/run/mysqld /var/lib/mysql-files; \
-  mkdir -p /var/lib/mysql /var/run/mysqld /var/lib/mysql-files; \
-  /usr/sbin/mysqld \
-    --initialize-insecure \
-    --datadir=/var/lib/mysql \
-    --basedir=/opt/mysql57; \
-  test -f /var/lib/mysql/mysql/user.frm; \
-  test -f /var/lib/mysql/mysql/plugin.frm; \
-  cp -a /opt/seed/hg38 /var/lib/mysql/hg38; \
-  cp -a /opt/seed/mirbase /var/lib/mysql/mirbase; \
-  rm -rf /opt/seed
 
-# Arbitrary-UID-safe permissions
-RUN set -eux; \
-  mkdir -p /var/run/mysqld /var/lib/mysql /var/lib/mysql-files /tmp; \
-  chmod 1777 /tmp; \
-  chmod 0777 /var/run/mysqld /var/lib/mysql /var/lib/mysql-files; \
-  find /var/lib/mysql -type d -exec chmod 0777 {} \; || true; \
-  find /var/lib/mysql -type f -exec chmod 0666 {} \; || true; \
-  find /opt/mysql57 -name '._*' -delete || true; \
-  find /opt/mysql57 -type d -exec chmod a+rx {} \; ; \
-  find /opt/mysql57 -type f -exec chmod a+r {} \; ; \
-  chmod a+rx /opt/mysql57/bin/* || true; \
-  chmod a+rx /usr/sbin/mysqld /usr/bin/mysql /usr/bin/mysqladmin /usr/bin/mysql_install_db /usr/bin/mysqld_safe || true
+################################################################################
+# MariaDB configuration
+#
+# The application still connects using:
+#
+#   hg38     localhost     root
+#   mirbase  localhost     root
+################################################################################
 
 RUN set -eux; \
-  ldd /usr/sbin/mysqld | head -n 50
+    mkdir -p \
+        /etc/my.cnf.d \
+        /run/mariadb \
+        /var/lib/mysql \
+        /var/lib/mysql-files; \
+    \
+    printf '%s\n' \
+        '[client]' \
+        'user=root' \
+        'socket=/var/lib/mysql/mysql.sock' \
+        '' \
+        '[mysql]' \
+        'socket=/var/lib/mysql/mysql.sock' \
+        '' \
+        '[mysqld]' \
+        'datadir=/var/lib/mysql' \
+        'socket=/var/lib/mysql/mysql.sock' \
+        'pid-file=/run/mariadb/mariadb.pid' \
+        'bind-address=127.0.0.1' \
+        'skip-name-resolve' \
+        'secure-file-priv=' \
+        'character-set-server=utf8' \
+        'collation-server=utf8_general_ci' \
+        'max-allowed-packet=1G' \
+        > /etc/my.cnf.d/mirna.cnf
+
+
+################################################################################
+# Validate the preserved application
+################################################################################
+
+RUN set -eux; \
+    test -d /usr/mirna/code; \
+    test -d /usr/mirna/config; \
+    test -f /usr/mirna/config/db_connections.cfg; \
+    \
+    grep -q $'^hg38\tlocalhost\troot' \
+        /usr/mirna/config/db_connections.cfg; \
+    grep -q $'^mirbase\tlocalhost\troot' \
+        /usr/mirna/config/db_connections.cfg; \
+    \
+    chown -R \
+        "${mirna_userid}:${mirna_groupid}" \
+        /usr/mirna; \
+    \
+    find /usr/mirna \
+        -type d \
+        -exec chmod a+rx {} +; \
+    \
+    find /usr/mirna \
+        -type f \
+        -exec chmod a+r {} +
+
+
+################################################################################
+# Initialize MariaDB and restore the exact logical database dumps
+################################################################################
+
+RUN set -eux; \
+    \
+    rm -rf /var/lib/mysql/*; \
+    mkdir -p \
+        /run/mariadb \
+        /var/lib/mysql \
+        /var/lib/mysql-files; \
+    \
+    chown -R mysql:mysql \
+        /run/mariadb \
+        /var/lib/mysql \
+        /var/lib/mysql-files; \
+    \
+    mariadb-install-db \
+        --user=mysql \
+        --datadir=/var/lib/mysql \
+        --auth-root-authentication-method=normal; \
+    \
+    mariadbd \
+        --user=mysql \
+        --datadir=/var/lib/mysql \
+        --socket=/var/lib/mysql/mysql.sock \
+        --pid-file=/run/mariadb/mariadb.pid \
+        --skip-networking & \
+    mariadb_pid=$!; \
+    \
+    ready=0; \
+    for attempt in $(seq 1 120); do \
+        if mariadb-admin \
+            --user=root \
+            --socket=/var/lib/mysql/mysql.sock \
+            ping >/dev/null 2>&1; then \
+            ready=1; \
+            break; \
+        fi; \
+        \
+        if ! kill -0 "${mariadb_pid}" >/dev/null 2>&1; then \
+            echo "ERROR: MariaDB exited during initialization"; \
+            wait "${mariadb_pid}" || true; \
+            exit 1; \
+        fi; \
+        \
+        sleep 1; \
+    done; \
+    \
+    if [ "${ready}" -ne 1 ]; then \
+        echo "ERROR: MariaDB failed to start during image build"; \
+        kill "${mariadb_pid}" || true; \
+        wait "${mariadb_pid}" || true; \
+        exit 1; \
+    fi; \
+    \
+    echo "Importing hg38 database"; \
+    gzip -cd /opt/mirna/database-dumps/hg38.sql.gz \
+        | mariadb \
+            --user=root \
+            --socket=/var/lib/mysql/mysql.sock; \
+    \
+    echo "Importing mirbase database"; \
+    gzip -cd /opt/mirna/database-dumps/mirbase.sql.gz \
+        | mariadb \
+            --user=root \
+            --socket=/var/lib/mysql/mysql.sock; \
+    \
+    hg38_tables="$(mariadb \
+        --batch \
+        --skip-column-names \
+        --user=root \
+        --socket=/var/lib/mysql/mysql.sock \
+        -e "SELECT COUNT(*) \
+            FROM information_schema.tables \
+            WHERE table_schema='hg38';")"; \
+    \
+    mirbase_tables="$(mariadb \
+        --batch \
+        --skip-column-names \
+        --user=root \
+        --socket=/var/lib/mysql/mysql.sock \
+        -e "SELECT COUNT(*) \
+            FROM information_schema.tables \
+            WHERE table_schema='mirbase';")"; \
+    \
+    echo "hg38 tables: ${hg38_tables}"; \
+    echo "mirbase tables: ${mirbase_tables}"; \
+    \
+    test "${hg38_tables}" -gt 0; \
+    test "${mirbase_tables}" -gt 0; \
+    \
+    mariadb-admin \
+        --user=root \
+        --socket=/var/lib/mysql/mysql.sock \
+        shutdown; \
+    \
+    wait "${mariadb_pid}"; \
+    \
+    rm -rf /opt/mirna/database-dumps; \
+    \
+    chown -R mysql:mysql \
+        /run/mariadb \
+        /var/lib/mysql \
+        /var/lib/mysql-files
+
+
+################################################################################
+# Generate the runtime entrypoint inside the image
+################################################################################
+
+RUN cat > /usr/local/bin/mirna-entrypoint <<'ENTRYPOINT_SCRIPT'
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+DATADIR="${MYSQL_DATADIR:-/var/lib/mysql}"
+SOCKET="${MYSQL_SOCKET:-/var/lib/mysql/mysql.sock}"
+PID_FILE="${MYSQL_PID_FILE:-/run/mariadb/mariadb.pid}"
+
+mkdir -p \
+    "$(dirname "$PID_FILE")" \
+    "$DATADIR" \
+    /var/lib/mysql-files
+
+chown -R mysql:mysql \
+    "$(dirname "$PID_FILE")" \
+    "$DATADIR" \
+    /var/lib/mysql-files
+
+mariadbd \
+    --user=mysql \
+    --datadir="$DATADIR" \
+    --socket="$SOCKET" \
+    --pid-file="$PID_FILE" \
+    --bind-address=127.0.0.1 &
+
+mariadb_pid=$!
+
+shutdown_database() {
+    mariadb-admin \
+        --user=root \
+        --socket="$SOCKET" \
+        shutdown >/dev/null 2>&1 || true
+
+    wait "$mariadb_pid" 2>/dev/null || true
+}
+
+trap shutdown_database EXIT INT TERM
+
+ready=0
+
+for attempt in $(seq 1 120); do
+    if mariadb-admin \
+        --user=root \
+        --socket="$SOCKET" \
+        ping >/dev/null 2>&1; then
+        ready=1
+        break
+    fi
+
+    if ! kill -0 "$mariadb_pid" >/dev/null 2>&1; then
+        echo "ERROR: MariaDB exited before becoming ready" >&2
+        wait "$mariadb_pid" || true
+        exit 1
+    fi
+
+    sleep 1
+done
+
+if [[ "$ready" -ne 1 ]]; then
+    echo "ERROR: MariaDB failed to become ready" >&2
+    exit 1
+fi
+
+"$@"
+command_status=$?
+
+shutdown_database
+trap - EXIT INT TERM
+
+exit "$command_status"
+ENTRYPOINT_SCRIPT
+
+RUN chmod 0755 /usr/local/bin/mirna-entrypoint
+
+
+################################################################################
+# Build-time validation
+################################################################################
+
+RUN set -eux; \
+    \
+    perl -MDBI \
+        -e 'print "DBI=$DBI::VERSION\n"'; \
+    \
+    perl -MDBD::mysql \
+        -e 'print "DBD::mysql=$DBD::mysql::VERSION\n"'; \
+    \
+    R --version | head -n 2; \
+    mariadb --version; \
+    mariadbd --version; \
+    \
+    test -f /usr/mirna/code/annotation/annotate.pl; \
+    test -f /usr/mirna/code/annotation/Annotate.pm; \
+    test -f /usr/mirna/code/library_stats/adapter.R; \
+    test -f /usr/mirna/config/pipeline_params.cfg; \
+    test -x /usr/local/bin/mirna-entrypoint; \
+    \
+    test -d /var/lib/mysql/mysql; \
+    test -d /var/lib/mysql/hg38; \
+    test -d /var/lib/mysql/mirbase
+
+
+################################################################################
+# Metadata and runtime defaults
+################################################################################
+
+LABEL org.opencontainers.image.title="mirna-profiler" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.description="GDC miRNA profiler on Amazon Linux 2023 with MariaDB 10.5"
 
 WORKDIR /usr/mirna
+
+ENTRYPOINT ["/usr/local/bin/mirna-entrypoint"]
+
+CMD ["bash"]
